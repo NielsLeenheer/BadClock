@@ -25,8 +25,8 @@ CORS(app)
 # ============================================================
 # SENSOR CONFIGURATION
 # ============================================================
-SMOOTHING_FACTOR = 0.3    # Exponential smoothing (0.0=no smoothing, 1.0=max smoothing)
-UPDATE_RATE = 0.05        # Sensor update rate in seconds (20Hz)
+SMOOTHING_FACTOR = 0.15   # Exponential smoothing (0.0=no smoothing, 1.0=max smoothing)
+UPDATE_RATE = 0.033       # Sensor update rate in seconds (~30Hz)
 # ============================================================
 
 class SensorReader:

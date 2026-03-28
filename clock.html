@@ -28,6 +28,8 @@
             position: relative;
             width: min(90vmin, 1000px);
             height: min(90vmin, 1000px);
+            overflow: hidden;
+            border-radius: 50%;
             /* Removed transition - orientation changes should be instant */
         }
 
@@ -39,9 +41,12 @@
         }
         
         #clock {
-            position: relative;
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
+            transition: transform 0.35s ease-in-out;
             border-radius: 50%;
             background: #111111;
             box-shadow:
@@ -359,9 +364,104 @@
         #horizon-line.visible {
             display: block;
         }
+
+        /* ============ Digital Display ============ */
+        #digital-display {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: transform 0.35s ease-in-out;
+            z-index: 1;
+        }
+
+        .digital-digits {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2%;
+            width: 95%;
+        }
+
+        .digital-digit {
+            flex: 0 0 19%;
+            overflow: visible;
+        }
+
+        .digit-svg {
+            width: 100%;
+            height: auto;
+            display: block;
+            overflow: visible;
+        }
+
+        .segment {
+            cursor: pointer;
+            transition: fill 0.12s, opacity 0.12s;
+        }
+
+        .segment.on {
+            fill: #ff1a1a;
+            filter: url(#segment-glow);
+        }
+
+        .segment.off {
+            fill: #1a1a1a;
+        }
+
+        .digital-colon {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 60px;
+            flex: 0 0 5%;
+        }
+
+        .colon-dot {
+            width: 26px;
+            height: 26px;
+            background: #ff1a1a;
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(255, 26, 26, 0.8), 0 0 18px rgba(255, 26, 26, 0.4);
+            animation: colon-blink 1s step-end infinite;
+        }
+
+        @keyframes colon-blink {
+            0%   { opacity: 1; }
+            85%  { opacity: 1; }
+            85.1%{ opacity: 0; }
+            100% { opacity: 0; }
+        }
+
+        .digital-digit.editing .segment.on {
+            animation: seg-pulse 0.6s ease-in-out infinite alternate;
+        }
+
+        @keyframes seg-pulse {
+            from { opacity: 0.65; }
+            to   { opacity: 1; }
+        }
     </style>
 </head>
 <body>
+    <!-- Shared SVG filter for segment glow -->
+    <svg style="position:absolute;width:0;height:0;pointer-events:none">
+        <defs>
+            <filter id="segment-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+                <feMerge>
+                    <feMergeNode in="blur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
+        </defs>
+    </svg>
+
     <div id="clock-container">
         <div id="clock">
             <div id="horizon-line"></div>
@@ -370,6 +470,7 @@
             <div id="second-hand" class="hand"></div>
             <div class="center-dot"></div>
         </div>
+        <div id="digital-display"></div>
     </div>
 
     <div id="fullscreen-toggle">
@@ -586,6 +687,280 @@
             }
         }
 
+        class DigitalClock {
+            constructor(container) {
+                this.container = container;
+                this.timeOffset = 0;
+                this.digits = [];
+                this.onTimeChange = null; // callback when time is edited
+
+                // 7-segment polygon points (viewBox 0 0 57 100)
+                this.SEG_PTS = {
+                    a: '13,4  17,0  40,0  44,4  40,8  17,8',
+                    b: '46,6  51,11 51,43 46,48 41,43 41,11',
+                    c: '46,52 51,57 51,89 46,94 41,89 41,57',
+                    d: '13,96 17,92 40,92 44,96 40,100 17,100',
+                    e: '11,52 16,57 16,89 11,94  6,89  6,57',
+                    f: '11,6  16,11 16,43 11,48  6,43  6,11',
+                    g: '13,50 17,46 40,46 44,50 40,54 17,54',
+                };
+
+                // Which segments are on for each digit 0-9
+                this.DIGIT_MAP = {
+                    0: 'abcdef', 1: 'bc', 2: 'abdeg', 3: 'abcdg',
+                    4: 'bcfg', 5: 'acdfg', 6: 'acdefg', 7: 'abc',
+                    8: 'abcdefg', 9: 'abcdfg',
+                };
+
+                // Reverse lookup: segment-pattern → digit value
+                this.PATTERN_TO_DIGIT = {};
+                for (const [digit, segs] of Object.entries(this.DIGIT_MAP)) {
+                    const key = 'abcdefg'.split('').map(s => segs.includes(s) ? '1' : '0').join('');
+                    this.PATTERN_TO_DIGIT[key] = parseInt(digit);
+                }
+
+                this.buildDisplay();
+            }
+
+            /* ---- DOM construction ---- */
+
+            buildDisplay() {
+                const row = document.createElement('div');
+                row.className = 'digital-digits';
+
+                for (let i = 0; i < 4; i++) {
+                    if (i === 2) {
+                        const colon = document.createElement('div');
+                        colon.className = 'digital-colon';
+                        colon.innerHTML = '<div class="colon-dot"></div><div class="colon-dot"></div>';
+                        row.appendChild(colon);
+                    }
+                    row.appendChild(this.buildDigit(i));
+                }
+
+                this.container.appendChild(row);
+            }
+
+            // Segment center points and whether horizontal (for hit detection)
+            SEG_CENTERS = {
+                a: { x: 28.5, y: 4,  hz: true },
+                b: { x: 46,   y: 27, hz: false },
+                c: { x: 46,   y: 73, hz: false },
+                d: { x: 28.5, y: 96, hz: true },
+                e: { x: 11,   y: 73, hz: false },
+                f: { x: 11,   y: 27, hz: false },
+                g: { x: 28.5, y: 50, hz: true },
+            };
+
+            buildDigit(index) {
+                const wrap = document.createElement('div');
+                wrap.className = 'digital-digit';
+                wrap.dataset.index = index;
+
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('viewBox', '0 0 57 100');
+                svg.classList.add('digit-svg');
+
+                const segments = {};
+                for (const [name, pts] of Object.entries(this.SEG_PTS)) {
+                    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    poly.setAttribute('points', pts);
+                    poly.classList.add('segment', 'off');
+                    poly.dataset.seg = name;
+                    poly.dataset.digit = index;
+                    poly.style.pointerEvents = 'none';
+
+                    svg.appendChild(poly);
+                    segments[name] = poly;
+                }
+
+                // Single click handler on the SVG - find nearest segment
+                svg.addEventListener('click', (e) => {
+                    const pt = svg.createSVGPoint();
+                    pt.x = e.clientX;
+                    pt.y = e.clientY;
+                    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+                    let bestSeg = null;
+                    let bestDist = Infinity;
+
+                    for (const [name, center] of Object.entries(this.SEG_CENTERS)) {
+                        const dx = svgPt.x - center.x;
+                        const dy = svgPt.y - center.y;
+                        // Horizontal segments get 0.6x distance (larger effective hit zone)
+                        const scale = center.hz ? 0.6 : 1.0;
+                        const dist = Math.sqrt(dx * dx + dy * dy) * scale;
+                        if (dist < bestDist) {
+                            bestDist = dist;
+                            bestSeg = name;
+                        }
+                    }
+
+                    if (bestSeg) {
+                        this.onSegmentTap(index, bestSeg);
+                    }
+                });
+
+                const digitState = {
+                    el: wrap,
+                    svg,
+                    segments,
+                    state: 'normal',   // 'normal' | 'editing' | 'error'
+                    segOn: { a: false, b: false, c: false, d: false, e: false, f: false, g: false },
+                    editTimeout: null,
+                };
+                this.digits.push(digitState);
+
+                wrap.appendChild(svg);
+                return wrap;
+            }
+
+            /* ---- Segment interaction ---- */
+
+            onSegmentTap(di, segName) {
+                const d = this.digits[di];
+
+                // If in error mode, clear and start fresh edit
+                if (d.state === 'error') {
+                    d.el.classList.remove('error');
+                    for (const s of 'abcdefg') d.segOn[s] = false;
+                }
+
+                d.state = 'editing';
+                d.el.classList.add('editing');
+
+                // Toggle the tapped segment
+                d.segOn[segName] = !d.segOn[segName];
+                this.renderDigit(di);
+
+                // (Re)start 2-second edit timeout
+                if (d.editTimeout) clearTimeout(d.editTimeout);
+                d.editTimeout = setTimeout(() => this.finalizeEdit(di), 2000);
+            }
+
+            finalizeEdit(di) {
+                const d = this.digits[di];
+                d.editTimeout = null;
+                d.el.classList.remove('editing');
+
+                // Check if segments form a valid digit (0-9)
+                const key = 'abcdefg'.split('').map(s => d.segOn[s] ? '1' : '0').join('');
+                const value = this.PATTERN_TO_DIGIT[key];
+                const allOff = key === '0000000';
+
+                if (value !== undefined && this.isValidInContext(di, value)) {
+                    // Valid digit AND valid in time context → apply
+                    d.state = 'normal';
+                    this.applyDigitValue(di, value);
+                } else if (allOff) {
+                    d.state = 'normal';
+                } else {
+                    // Not a digit, or digit not valid in this position → error
+                    this.enterErrorMode(di);
+                }
+            }
+
+            isValidInContext(di, value) {
+                // Build prospective HH:MM with this digit changed
+                const now = new Date(Date.now() + this.timeOffset);
+                let h = now.getHours(), m = now.getMinutes();
+
+                switch (di) {
+                    case 0: h = value * 10 + (h % 10); break;
+                    case 1: h = Math.floor(h / 10) * 10 + value; break;
+                    case 2: m = value * 10 + (m % 10); break;
+                    case 3: m = Math.floor(m / 10) * 10 + value; break;
+                }
+
+                return h <= 23 && m <= 59;
+            }
+
+            enterErrorMode(di) {
+                const d = this.digits[di];
+                let tick = 0;
+
+                const iv = setInterval(() => {
+                    if (tick >= 6) {
+                        clearInterval(iv);
+                        // All segments off
+                        for (const s of 'abcdefg') d.segOn[s] = false;
+                        d.state = 'error';
+                        d.el.classList.add('error');
+                        this.renderDigit(di);
+                        return;
+                    }
+
+                    // Alternate visibility of currently-on segments
+                    const show = tick % 2 === 0;
+                    for (const [s, poly] of Object.entries(d.segments)) {
+                        if (d.segOn[s]) {
+                            poly.classList.toggle('on', show);
+                            poly.classList.toggle('off', !show);
+                        }
+                    }
+                    tick++;
+                }, 130);
+            }
+
+            applyDigitValue(di, value) {
+                const now = new Date(Date.now() + this.timeOffset);
+                let h = now.getHours(), m = now.getMinutes();
+
+                switch (di) {
+                    case 0: h = value * 10 + (h % 10); break;
+                    case 1: h = Math.floor(h / 10) * 10 + value; break;
+                    case 2: m = value * 10 + (m % 10); break;
+                    case 3: m = Math.floor(m / 10) * 10 + value; break;
+                }
+
+                const target = new Date(now);
+                target.setHours(h, m, now.getSeconds(), now.getMilliseconds());
+                this.timeOffset = target.getTime() - Date.now();
+
+                if (this.onTimeChange) this.onTimeChange(this.timeOffset);
+            }
+
+            /* ---- Rendering ---- */
+
+            renderDigit(di) {
+                const d = this.digits[di];
+                for (const [name, poly] of Object.entries(d.segments)) {
+                    const on = d.segOn[name];
+                    poly.classList.toggle('on', on);
+                    poly.classList.toggle('off', !on);
+                }
+            }
+
+            setDigitValue(di, value) {
+                const d = this.digits[di];
+                if (d.state !== 'normal') return; // don't overwrite editing/error
+
+                const pattern = this.DIGIT_MAP[value] || '';
+                for (const s of 'abcdefg') {
+                    d.segOn[s] = pattern.includes(s);
+                }
+                this.renderDigit(di);
+            }
+
+            /* ---- Called every frame from Clock.animate ---- */
+
+            update(timeOffset) {
+                this.timeOffset = timeOffset;
+
+                const now = new Date(Date.now() + timeOffset);
+                const h = now.getHours(), m = now.getMinutes();
+
+                const vals = [
+                    Math.floor(h / 10), h % 10,
+                    Math.floor(m / 10), m % 10,
+                ];
+
+                for (let i = 0; i < 4; i++) {
+                    this.setDigitValue(i, vals[i]);
+                }
+            }
+        }
+
         class Clock {
             constructor() {
                 /*
@@ -693,6 +1068,14 @@
                 this.gravityAngle = 0; // Angle pointing down
                 this.lastShakeDebug = 0; // For throttling debug output
                 this.lastOrientationLog = 0; // For throttling orientation logs
+
+                // Rotation dead zone + snap-to-90°
+                this.sensorAngle = 0;          // raw angle from sensor (updated every frame)
+                this.committedRotation = 0;    // the rotation we've committed to displaying
+                this.DEAD_ZONE = 8;            // degrees of movement needed to start rotating
+                this.SNAP_DISTANCE = 12;       // degrees from a 90° angle to snap
+                this.SNAP_DELAY = 800;         // ms of stillness before snapping
+                this.lastAngleChangeTime = 0;  // when the sensor angle last changed significantly
                 
                 console.log('Clock initialization:');
                 console.log('  Protocol:', window.location.protocol);
@@ -704,7 +1087,112 @@
                 this.setupManualControls();
                 this.startOrientationPolling();
                 this.lockOrientation();
+
+                // ---- Mode switching (digital / analog) ----
+                this.currentMode = 'digital'; // digital is default
+                this.analogDisplay = this.clock;
+                this.digitalDisplay = document.getElementById('digital-display');
+
+                this.digitalClock = new DigitalClock(this.digitalDisplay);
+                this.digitalClock.onTimeChange = (offset) => {
+                    this.timeOffset = offset;
+                };
+
+                // Position: digital visible, analog off-screen left
+                this.analogDisplay.style.transform = 'translateX(-100%)';
+                this.digitalDisplay.style.transform = 'translateX(0)';
+
+                this.setupSwipeDetection();
+
                 this.animate();
+            }
+
+            /* ---- Edge-swipe to switch modes ---- */
+
+            setupSwipeDetection() {
+                const EDGE = 44;      // px from edge to count as edge-touch
+                const THRESHOLD = 80; // px inward travel to trigger
+                let startLX = null;   // local (rotation-compensated) coords
+                let startLY = null;
+                let swiped = false;
+
+                // Transform screen coords into clock-local coords
+                // (undo the displayRotation so swipe is always horizontal relative to the clock face)
+                const toLocal = (clientX, clientY) => {
+                    const cx = window.innerWidth / 2;
+                    const cy = window.innerHeight / 2;
+                    const dx = clientX - cx;
+                    const dy = clientY - cy;
+                    const rad = -this.displayRotation * Math.PI / 180;
+                    return {
+                        x: cx + dx * Math.cos(rad) - dy * Math.sin(rad),
+                        y: cy + dx * Math.sin(rad) + dy * Math.cos(rad),
+                    };
+                };
+
+                const onStart = (e) => {
+                    const t = e.touches ? e.touches[0] : e;
+                    const local = toLocal(t.clientX, t.clientY);
+                    if (local.x < EDGE || local.x > window.innerWidth - EDGE) {
+                        startLX = local.x;
+                        startLY = local.y;
+                        swiped = false;
+                    }
+                };
+
+                const onMove = (e) => {
+                    if (startLX === null || swiped) return;
+                    const t = e.touches ? e.touches[0] : e;
+                    const local = toLocal(t.clientX, t.clientY);
+                    const dx = local.x - startLX;
+                    const dy = local.y - startLY;
+
+                    if (Math.abs(dx) > THRESHOLD && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                        // Layout: [digital] [analog] — swipe left to go right, swipe right to go left
+                        if (dx < 0 && this.currentMode === 'digital') {
+                            swiped = true;
+                            this.switchMode('analog');
+                        } else if (dx > 0 && this.currentMode === 'analog') {
+                            swiped = true;
+                            this.switchMode('digital');
+                        }
+                    }
+                };
+
+                const onEnd = () => { startLX = null; };
+
+                document.addEventListener('touchstart', onStart, { passive: true });
+                document.addEventListener('touchmove', onMove, { passive: true });
+                document.addEventListener('touchend', onEnd);
+                document.addEventListener('mousedown', onStart);
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onEnd);
+            }
+
+            switchMode(newMode) {
+                if (newMode === this.currentMode) return;
+
+                const toAnalog = newMode === 'analog';
+                const incoming = toAnalog ? this.analogDisplay : this.digitalDisplay;
+                const outgoing = toAnalog ? this.digitalDisplay : this.analogDisplay;
+
+                // Digital is left, analog is right
+                const inFrom = toAnalog ? '100%' : '-100%';
+                const outTo  = toAnalog ? '-100%' : '100%';
+
+                // Place incoming off-screen instantly
+                incoming.style.transition = 'none';
+                incoming.style.transform = `translateX(${inFrom})`;
+                incoming.offsetHeight; // force reflow
+
+                // Animate both
+                incoming.style.transition = 'transform 0.35s ease-in-out';
+                outgoing.style.transition = 'transform 0.35s ease-in-out';
+                incoming.style.transform = 'translateX(0)';
+                outgoing.style.transform = `translateX(${outTo})`;
+
+                this.currentMode = newMode;
+                console.log(`Switched to ${newMode} mode`);
             }
 
             lockOrientation() {
@@ -860,6 +1348,59 @@
                         lines[0] = `Orientation: ${Math.round(this.displayRotation)}°${this.manualMode ? ' (manual)' : ''}`;
                         orientationInfo.innerHTML = lines.join('<br>');
                     }
+                }
+            }
+
+            /* ---- Rotation with dead zone + snap-to-90° ---- */
+
+            applyRotation(newAngle) {
+                // Calculate difference from committed rotation (handle wraparound)
+                let diff = newAngle - this.committedRotation;
+                while (diff > 180) diff -= 360;
+                while (diff < -180) diff += 360;
+
+                if (Math.abs(diff) < this.DEAD_ZONE) {
+                    // Inside dead zone - don't rotate yet
+                    return;
+                }
+
+                // Commit the new rotation
+                const rotationChange = diff;
+                this.previousDisplayRotation = this.displayRotation;
+                this.committedRotation = newAngle;
+                this.displayRotation = newAngle;
+
+                // Fast CSS transition for the jump
+                this.displayElement.style.transition = 'transform 0.15s ease-out';
+                this.displayElement.style.transform = `rotate(${this.displayRotation}deg)`;
+
+                // Apply inertia to hands when clock rotates in shake mode
+                if (this.shakeMode) {
+                    this.hourHand.applyClockRotationInertia(rotationChange);
+                    this.minuteHand.applyClockRotationInertia(rotationChange);
+                    this.secondHand.applyClockRotationInertia(rotationChange);
+                    this.gravityAngle = 180;
+                    this.hourHand.updateGravityTarget(this.gravityAngle);
+                    this.minuteHand.updateGravityTarget(this.gravityAngle);
+                    this.secondHand.updateGravityTarget(this.gravityAngle);
+                }
+            }
+
+            snapCheck() {
+                // If sensor has been still for a while, snap to nearest 90°
+                const elapsed = Date.now() - this.lastAngleChangeTime;
+                if (elapsed < this.SNAP_DELAY) return;
+
+                const nearest90 = Math.round(this.committedRotation / 90) * 90;
+                let diff = nearest90 - this.committedRotation;
+                while (diff > 180) diff -= 360;
+                while (diff < -180) diff += 360;
+
+                if (Math.abs(diff) > 0.5 && Math.abs(diff) <= this.SNAP_DISTANCE) {
+                    this.committedRotation = nearest90;
+                    this.displayRotation = nearest90;
+                    this.displayElement.style.transition = 'transform 0.4s ease-in-out';
+                    this.displayElement.style.transform = `rotate(${nearest90}deg)`;
                 }
             }
 
@@ -1101,7 +1642,7 @@
             handleAccelerometerData(data) {
                 // Use real accelerometer data for shake detection
                 // Only detect back-and-forth Z-axis motion (actual shaking)
-                if (!this.manualMode && !this.shakeMode && data.raw) {
+                if (!this.manualMode && !this.shakeMode && this.currentMode === 'analog' && data.raw) {
                     const now = Date.now();
 
                     // Store Z-axis history only
@@ -1185,9 +1726,8 @@
             updateOrientation(data) {
                 const { x, y, z } = data;
                 
-                // Shake detection (only when not in manual mode)
-                // Only detect physical back-and-forth motion via Z-axis changes
-                if (!this.manualMode && !this.shakeMode) {
+                // Shake detection (only when not in manual mode, only in analog mode)
+                if (!this.manualMode && !this.shakeMode && this.currentMode === 'analog') {
                     const now = Date.now();
 
                     // Store acceleration history (only Z-axis matters)
@@ -1251,43 +1791,15 @@
                     this.lastOrientationLog = now;
                 }
                 
-                let angle = Math.atan2(x, y) * (180 / Math.PI);
-                
                 // Flip the coordinate system - when device is upright (y≈-1), we want angle≈0
-                angle = Math.atan2(-x, -y) * (180 / Math.PI);
-                
-                // Apply rotation directly (no negation) to compensate for device rotation
+                const angle = Math.atan2(-x, -y) * (180 / Math.PI);
+
                 this.autoOrientation = angle;
-                
+                this.sensorAngle = angle;
+                this.lastAngleChangeTime = Date.now();
+
                 if (!this.manualMode) {
-                    const newRotation = this.autoOrientation;
-                    const rotationChanged = newRotation !== this.displayRotation;
-                    
-                    if (rotationChanged) {
-                        const rotationChange = newRotation - this.displayRotation;
-                        this.previousDisplayRotation = this.displayRotation;
-                        this.displayRotation = newRotation;
-                        
-                        // Apply inertia to hands when clock rotates in shake mode
-                        if (this.shakeMode) {
-                            // Apply inertia to each hand
-                            this.hourHand.applyClockRotationInertia(rotationChange);
-                            this.minuteHand.applyClockRotationInertia(rotationChange);
-                            this.secondHand.applyClockRotationInertia(rotationChange);
-
-                            // Gravity stays at 180° (6 o'clock)
-                            this.gravityAngle = 180;
-
-                            // Update gravity target
-                            this.hourHand.updateGravityTarget(this.gravityAngle);
-                            this.minuteHand.updateGravityTarget(this.gravityAngle);
-                            this.secondHand.updateGravityTarget(this.gravityAngle);
-                        }
-                    } else {
-                        this.displayRotation = newRotation;
-                    }
-                    
-                    this.displayElement.style.transform = `rotate(${this.displayRotation}deg)`;
+                    this.applyRotation(angle);
                 }
                 
                 // Update orientation info
@@ -1383,10 +1895,14 @@
                 this.hourHand.update();
                 this.minuteHand.update();
                 this.secondHand.update();
+
+                // Snap to nearest 90° when static
+                if (!this.manualMode) this.snapCheck();
                 
                 // Skip time updates when in shake mode
                 if (this.shakeMode) {
                     this.updateDisplay();
+                    if (this.digitalClock) this.digitalClock.update(this.timeOffset);
                     requestAnimationFrame(() => this.animate());
                     return;
                 }
@@ -1445,10 +1961,15 @@
                 }
                 
                 this.updateDisplay();
-                
+
+                // Update digital clock every frame (it skips editing/error digits internally)
+                if (this.digitalClock) {
+                    this.digitalClock.update(this.timeOffset);
+                }
+
                 requestAnimationFrame(() => this.animate());
             }
-            
+
             getAngleDifference(target, current) {
                 let diff = target - current;
                 while (diff > 180) diff -= 360;
