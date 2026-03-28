@@ -1,0 +1,1465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Auto-Rotating Clock</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #clock-container {
+            position: relative;
+            width: min(90vmin, 1000px);
+            height: min(90vmin, 1000px);
+            /* Removed transition - orientation changes should be instant */
+        }
+
+
+        /* Use full screen on localhost (Pi) */
+        body.localhost #clock-container {
+            width: 100vmin;
+            height: 100vmin;
+        }
+        
+        #clock {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: #111111;
+            box-shadow:
+                0 0 60px rgba(0, 0, 0, 0.8),
+                inset 0 0 40px rgba(0, 0, 0, 0.5);
+            transition: box-shadow 0.3s;
+        }
+
+        /* Hide clock face on localhost (Pi) - just hands on black background */
+        body.localhost #clock {
+            background: transparent;
+            box-shadow: none;
+        }
+
+        #clock.shake-mode {
+            /* Shake mode active - no visual change to clock face */
+        }
+
+        .center-dot {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #e74c3c;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 20px rgba(231, 76, 60, 0.8);
+            z-index: 10;
+        }
+
+        .hand {
+            position: absolute;
+            background: linear-gradient(to top, #ecf0f1, #bdc3c7);
+            border-radius: 10px;
+            transform-origin: 50% 100%;
+            cursor: grab;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            transition: none;
+        }
+
+        /* Larger invisible touch target */
+        .hand::before {
+            content: '';
+            position: absolute;
+            left: -20px;
+            right: -20px;
+            top: 0;
+            bottom: 0;
+        }
+
+        .hand:active {
+            cursor: grabbing;
+        }
+
+        .hand.dragging {
+            filter: brightness(1.3);
+        }
+
+        #hour-hand {
+            width: 12px;
+            height: 30%;
+            left: 50%;
+            top: 20%;
+            transform: translateX(-50%);
+            z-index: 1;
+        }
+
+        #minute-hand {
+            width: 10px;
+            height: 40%;
+            left: 50%;
+            top: 10%;
+            transform: translateX(-50%);
+            z-index: 2;
+        }
+
+        #second-hand {
+            width: 4px;
+            height: 45%;
+            left: 50%;
+            top: 5%;
+            transform: translateX(-50%);
+            background: #e74c3c;
+            z-index: 3;
+        }
+
+        #debug-info {
+            position: fixed;
+            top: 44px; /* Below the toggle */
+            left: 10px;
+            color: #ecf0f1;
+            font-size: 14px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            z-index: 100;
+            display: none; /* Hidden by default */
+        }
+
+        #debug-info.visible {
+            display: block;
+        }
+
+        #debug-toggle {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 101;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #debug-toggle input[type="checkbox"] {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+
+        #debug-toggle label {
+            color: #ecf0f1;
+            font-size: 14px;
+            font-family: monospace;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        #fullscreen-toggle {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 102;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+
+        #fullscreen-toggle:hover {
+            background: rgba(0, 0, 0, 0.85);
+        }
+
+        #fullscreen-toggle span {
+            color: #ecf0f1;
+            font-size: 14px;
+            font-family: monospace;
+        }
+
+        #debug-toggle {
+            top: 54px !important; /* Below fullscreen button */
+        }
+
+        #debug-info {
+            top: 98px !important; /* Below both buttons */
+        }
+
+        /* Manual controls panel */
+        #manual-controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 100;
+            opacity: 0.3;
+            transition: opacity 0.3s;
+            display: none; /* Hidden by default */
+        }
+
+        #manual-controls.visible {
+            display: block;
+        }
+
+        #manual-controls:hover {
+            opacity: 1;
+        }
+
+        #manual-controls.active {
+            opacity: 1;
+            border: 2px solid #e74c3c;
+        }
+
+        .angle-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+        }
+
+        .angle-btn {
+            background: rgba(52, 152, 219, 0.3);
+            border: 1px solid #3498db;
+            color: #ecf0f1;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            font-family: monospace;
+            transition: all 0.2s;
+        }
+
+        .angle-btn:hover {
+            background: rgba(52, 152, 219, 0.5);
+            transform: scale(1.05);
+        }
+
+        .angle-btn:active {
+            transform: scale(0.95);
+        }
+
+        .auto-btn {
+            background: rgba(46, 204, 113, 0.3);
+            border: 1px solid #2ecc71;
+            color: #ecf0f1;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-family: monospace;
+            transition: all 0.2s;
+            margin-top: 6px;
+        }
+
+        .auto-btn:hover {
+            background: rgba(46, 204, 113, 0.5);
+        }
+
+        .random-btn {
+            background: rgba(155, 89, 182, 0.3);
+            border: 1px solid #9b59b6;
+            color: #ecf0f1;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-family: monospace;
+            transition: all 0.2s;
+            margin-top: 6px;
+        }
+
+        .random-btn:hover {
+            background: rgba(155, 89, 182, 0.5);
+        }
+
+        .shake-btn {
+            background: rgba(230, 126, 34, 0.3);
+            border: 1px solid #e67e22;
+            color: #ecf0f1;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-family: monospace;
+            transition: all 0.2s;
+            margin-top: 6px;
+        }
+
+        .shake-btn:hover {
+            background: rgba(230, 126, 34, 0.5);
+        }
+
+        .fullscreen-btn {
+            background: rgba(52, 152, 219, 0.3);
+            border: 1px solid #3498db;
+            color: #ecf0f1;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-family: monospace;
+            transition: all 0.2s;
+            margin-top: 6px;
+        }
+
+        .fullscreen-btn:hover {
+            background: rgba(52, 152, 219, 0.5);
+        }
+
+        /* Debug horizon line */
+        #horizon-line {
+            position: absolute;
+            width: 120%;
+            height: 3px;
+            background: rgba(231, 76, 60, 0.8);
+            top: 75%;
+            left: -10%;
+            pointer-events: none;
+            z-index: 5;
+            box-shadow: 0 0 10px rgba(231, 76, 60, 0.6);
+            display: none; /* Hidden by default */
+            /* NO transform - stays fixed to clock face, rotates with it */
+        }
+
+        #horizon-line.visible {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="clock-container">
+        <div id="clock">
+            <div id="horizon-line"></div>
+            <div id="hour-hand" class="hand"></div>
+            <div id="minute-hand" class="hand"></div>
+            <div id="second-hand" class="hand"></div>
+            <div class="center-dot"></div>
+        </div>
+    </div>
+
+    <div id="fullscreen-toggle">
+        <span>⛶ Fullscreen</span>
+    </div>
+
+    <div id="debug-toggle">
+        <input type="checkbox" id="debug-checkbox">
+        <label for="debug-checkbox">Debug</label>
+    </div>
+
+    <div id="debug-info">
+        <div id="time-display" style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">00:00:00</div>
+        <div id="orientation-info">
+            Orientation: 0°<br>
+            Accel: x:0 y:0 z:0<br>
+            Time offset: +0m
+        </div>
+    </div>
+
+    <!-- Manual orientation controls panel -->
+    <div id="manual-controls">
+        <div class="angle-buttons">
+            <button class="angle-btn" data-angle="0">0°</button>
+            <button class="angle-btn" data-angle="90">90°</button>
+            <button class="angle-btn" data-angle="180">180°</button>
+            <button class="angle-btn" data-angle="270">270°</button>
+        </div>
+        <button class="auto-btn">AUTO</button>
+        <button class="random-btn">RANDOM</button>
+        <button class="shake-btn">SHAKE</button>
+    </div>
+
+    <script>
+        class Hand {
+            constructor(element, gearRatio, gravityPhysics = {}) {
+                this.element = element;
+                this.gearRatio = gearRatio;
+                this.angle = 0;
+                this.velocity = 0;
+                this.isDragging = false;
+                this.lastAngle = 0;
+                this.lastTime = Date.now();
+                this.damping = 0.95;
+                this.manuallySet = false;
+                
+                // Gravity mode physics - can be customized per hand
+                this.gravityMode = false;
+                this.gravityTargetAngle = 180; // Point down by default
+                this.gravityVelocity = 0;
+                this.gravityDamping = gravityPhysics.damping || 0.99; // Higher damping = faster settling
+                this.springConstant = gravityPhysics.springConstant || 0.0025; // Very low spring = very slow movement
+                this.impulseMultiplier = gravityPhysics.impulseMultiplier || 1.0; // How strongly hand responds to orientation changes
+                
+                this.setupTouch();
+            }
+
+            setupTouch() {
+                const getAngleFromEvent = (e) => {
+                    const touch = e.touches ? e.touches[0] : e;
+                    const rect = this.element.parentElement.getBoundingClientRect();
+                    const centerX = rect.left + rect.width / 2;
+                    const centerY = rect.top + rect.height / 2;
+                    const dx = touch.clientX - centerX;
+                    const dy = touch.clientY - centerY;
+                    return Math.atan2(dx, -dy) * (180 / Math.PI);
+                };
+
+                const startDrag = (e) => {
+                    this.isDragging = true;
+                    this.element.classList.add('dragging');
+                    this.velocity = 0;
+                    this.lastAngle = getAngleFromEvent(e);
+                    this.lastTime = Date.now();
+                    this.manuallySet = true;
+                    
+                    // Exit gravity mode when user drags a hand
+                    if (this.gravityMode) {
+                        this.exitCallback && this.exitCallback();
+                    }
+                    
+                    e.preventDefault();
+                };
+
+                const drag = (e) => {
+                    if (!this.isDragging) return;
+                    
+                    const currentAngle = getAngleFromEvent(e);
+                    const currentTime = Date.now();
+                    const deltaTime = currentTime - this.lastTime;
+                    
+                    if (deltaTime > 0) {
+                        let deltaAngle = currentAngle - this.lastAngle;
+                        
+                        if (deltaAngle > 180) deltaAngle -= 360;
+                        if (deltaAngle < -180) deltaAngle += 360;
+                        
+                        this.angle += deltaAngle;
+                        this.velocity = deltaAngle / deltaTime * 16;
+                        
+                        this.lastAngle = currentAngle;
+                        this.lastTime = currentTime;
+                    }
+                    
+                    e.preventDefault();
+                };
+
+                const endDrag = (e) => {
+                    if (!this.isDragging) return;
+                    this.isDragging = false;
+                    this.element.classList.remove('dragging');
+                    e.preventDefault();
+                };
+
+                this.element.addEventListener('touchstart', startDrag);
+                this.element.addEventListener('mousedown', startDrag);
+                
+                document.addEventListener('touchmove', drag);
+                document.addEventListener('mousemove', drag);
+                
+                document.addEventListener('touchend', endDrag);
+                document.addEventListener('mouseup', endDrag);
+            }
+
+            update() {
+                if (this.gravityMode) {
+                    // In gravity mode, hands hang down and swing
+                    const diff = this.getAngleDifference(this.gravityTargetAngle, this.angle);
+                    
+                    // Spring force toward gravity (slower with lower spring constant)
+                    const springForce = diff * this.springConstant;
+                    this.gravityVelocity += springForce;
+                    
+                    // Apply velocity and damping
+                    this.angle += this.gravityVelocity;
+                    this.gravityVelocity *= this.gravityDamping;
+                    
+                    // Stop when settled
+                    if (Math.abs(this.gravityVelocity) < 0.03 && Math.abs(diff) < 0.5) {
+                        this.gravityVelocity = 0;
+                        this.angle = this.gravityTargetAngle;
+                        console.log(`Hand settled at ${this.angle.toFixed(1)}° (gravity target)`);
+                    }
+                } else if (!this.isDragging) {
+                    // Normal inertia mode
+                    this.angle += this.velocity;
+                    this.velocity *= this.damping;
+                    
+                    if (Math.abs(this.velocity) < 0.01) {
+                        this.velocity = 0;
+                    }
+                }
+                
+                // Normalize angle
+                while (this.angle >= 360) this.angle -= 360;
+                while (this.angle < 0) this.angle += 360;
+                
+                this.element.style.transform = `translateX(-50%) rotate(${this.angle}deg)`;
+            }
+            
+            getAngleDifference(target, current) {
+                let diff = target - current;
+                while (diff > 180) diff -= 360;
+                while (diff < -180) diff += 360;
+                return diff;
+            }
+            
+            enableGravityMode(gravityAngle) {
+                this.gravityMode = true;
+                this.gravityTargetAngle = gravityAngle;
+                this.gravityVelocity = 0;
+                this.velocity = 0;
+            }
+            
+            disableGravityMode() {
+                this.gravityMode = false;
+                this.gravityVelocity = 0;
+            }
+            
+            updateGravityTarget(gravityAngle) {
+                // Simply update where gravity points (always 180° = screen bottom in clock space)
+                if (this.gravityMode) {
+                    this.gravityTargetAngle = gravityAngle;
+                }
+            }
+            
+            applyClockRotationInertia(rotationChange) {
+                // When clock rotates, update hand position in new coordinate system
+                if (this.gravityMode && Math.abs(rotationChange) > 1) {
+                    console.log(`Clock rotated ${rotationChange.toFixed(1)}°, hand at ${this.angle.toFixed(1)}° in clock space`);
+
+                    // Key concept: Hands stay pointing at screen bottom in world space
+                    // When clock rotates, the coordinate system changes
+                    // Hand angle in new clock space = old angle - rotationChange
+                    // (If clock rotates -90° CCW, and hand was at 180°, it's now at 180 - (-90) = 270°)
+
+                    this.angle -= rotationChange;
+
+                    console.log(`  After coordinate change: hand now at ${this.angle.toFixed(1)}° in new clock space`);
+                    console.log(`  Gravity at 180°, hand will fall naturally from ${this.angle.toFixed(1)}° to 180°`);
+
+                    // Don't add any velocity - just let gravity pull the hand naturally
+                    // The spring force in update() will do all the work
+                }
+            }
+            
+            setAngle(angle) {
+                this.angle = angle;
+            }
+
+            getTime() {
+                const normalized = ((this.angle % 360) + 360) % 360;
+                return (normalized / 360) * this.gearRatio;
+            }
+        }
+
+        class Clock {
+            constructor() {
+                /*
+                 * CLOCK FUNDAMENTALS:
+                 *
+                 * The clock has two modes:
+                 *
+                 * 1. CLOCK MODE (default):
+                 *    - Hands are "connected" to the clock mechanism
+                 *    - They operate as one with the clock face
+                 *    - When orientation changes, hands immediately adapt (no lag/inertia)
+                 *    - Hands show the current time
+                 *
+                 * 2. SHAKE MODE (activated by shaking or SHAKE button):
+                 *    - Hands are "disconnected" from the clock mechanism
+                 *    - They freely rotate around center pivot point
+                 *    - Gravity pulls them toward screen bottom (lowest point)
+                 *    - When orientation changes:
+                 *      a) Clock face rotates to stay upright (12 at top, 6 at bottom)
+                 *      b) Hands stay in world space (pointing at screen bottom)
+                 *      c) This makes hands appear at different angles in clock space
+                 *      d) Gravity pulls hands toward new screen-bottom position (always 6 o'clock in clock space)
+                 *      e) Hands swing from their current position to 6 o'clock
+                 */
+
+                // Detect if running locally on Pi (localhost) - needs faster physics
+                this.isLocalhost = window.location.hostname === 'localhost' ||
+                                   window.location.hostname === '127.0.0.1' ||
+                                   window.location.hostname === '::1';
+
+                // Performance multiplier for localhost (Pi hardware)
+                // Higher values = faster animations, less smooth but better FPS
+                const perfMultiplier = this.isLocalhost ? 3.0 : 1.0;
+
+                console.log(`Running on ${this.isLocalhost ? 'localhost (Pi)' : 'remote client'}`);
+                console.log(`Performance multiplier: ${perfMultiplier}x`);
+
+                // Apply localhost styling (hides clock face on Pi)
+                if (this.isLocalhost) {
+                    document.body.classList.add('localhost');
+                }
+
+                // Create hands with different gravity physics
+                // Hour hand: heaviest (slowest drop, most friction, least responsive to changes)
+                this.hourHand = new Hand(
+                    document.getElementById('hour-hand'),
+                    43200000,
+                    {
+                        springConstant: 0.002 * perfMultiplier,
+                        damping: Math.pow(0.99, perfMultiplier),
+                        impulseMultiplier: 0.7 * perfMultiplier
+                    }
+                );
+
+                // Minute hand: medium weight (balanced responsiveness)
+                this.minuteHand = new Hand(
+                    document.getElementById('minute-hand'),
+                    3600000,
+                    {
+                        springConstant: 0.0025 * perfMultiplier,
+                        damping: Math.pow(0.985, perfMultiplier),
+                        impulseMultiplier: 1.0 * perfMultiplier
+                    }
+                );
+
+                // Second hand: lightest (fastest drop, least friction, most responsive to changes)
+                this.secondHand = new Hand(
+                    document.getElementById('second-hand'),
+                    60000,
+                    {
+                        springConstant: 0.003 * perfMultiplier,
+                        damping: Math.pow(0.98, perfMultiplier),
+                        impulseMultiplier: 1.3 * perfMultiplier
+                    }
+                );
+                
+                this.displayRotation = 0;
+                this.previousDisplayRotation = 0; // Track for inertia calculations
+                this.displayElement = document.getElementById('clock-container');
+                this.clock = document.getElementById('clock');
+                this.debugElement = document.getElementById('debug-info');
+                this.horizonLine = document.getElementById('horizon-line');
+                this.manualControls = document.getElementById('manual-controls');
+                
+                // Debug toggle
+                this.debugEnabled = false;
+                this.debugCheckbox = document.getElementById('debug-checkbox');
+                this.fullscreenToggle = document.getElementById('fullscreen-toggle');
+                this.setupDebugToggle();
+                this.setupFullscreenToggle();
+                
+                this.timeOffset = 0;
+                this.lastUpdateTime = Date.now();
+                
+                // Manual orientation control
+                this.manualMode = false;
+                this.manualOrientation = 0;
+                this.autoOrientation = 0;
+                
+                // Shake detection and gravity mode
+                this.shakeMode = false;
+                this.accelHistory = [];
+                this.shakeThreshold = 2.0; // Acceleration change threshold
+                this.shakeWindow = 500; // ms to check for shakes
+                this.gravityAngle = 0; // Angle pointing down
+                this.lastShakeDebug = 0; // For throttling debug output
+                this.lastOrientationLog = 0; // For throttling orientation logs
+                
+                console.log('Clock initialization:');
+                console.log('  Protocol:', window.location.protocol);
+                console.log('  Host:', window.location.host);
+                console.log('  Secure context:', window.isSecureContext);
+                console.log('  Generic Sensor API:', typeof RelativeOrientationSensor !== 'undefined' ? 'Available' : 'Not available');
+                
+                this.setCurrentTime();
+                this.setupManualControls();
+                this.startOrientationPolling();
+                this.lockOrientation();
+                this.animate();
+            }
+
+            lockOrientation() {
+                // Try to lock screen orientation to prevent unwanted rotation
+                if (!screen.orientation) {
+                    console.warn('Screen Orientation API not supported');
+                    return;
+                }
+                
+                // Check if the lock method exists (not supported in Safari)
+                if (typeof screen.orientation.lock !== 'function') {
+                    console.warn('Screen orientation lock not supported in this browser');
+                    return;
+                }
+                
+                // Try to lock to current orientation
+                // This usually only works in fullscreen mode or installed PWA
+                const currentOrientation = screen.orientation.type;
+                console.log('Current screen orientation:', currentOrientation);
+                
+                // Try to lock (will likely fail unless in fullscreen)
+                screen.orientation.lock(currentOrientation).then(() => {
+                    console.log('✓ Screen orientation locked to:', currentOrientation);
+                }).catch((error) => {
+                    console.warn('Screen orientation lock failed (this is normal unless in fullscreen):', error.message);
+                    console.info('💡 Tip: Enter fullscreen mode to lock orientation');
+                    console.info('   - Press F11 on desktop');
+                    console.info('   - Or add this to your home screen on mobile');
+                });
+            }
+            
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    // Enter fullscreen
+                    const elem = document.documentElement;
+                    
+                    if (elem.requestFullscreen) {
+                        elem.requestFullscreen().then(() => {
+                            console.log('✓ Entered fullscreen mode');
+                            // Try to lock orientation now that we're in fullscreen
+                            this.lockOrientation();
+                        }).catch((error) => {
+                            console.error('Failed to enter fullscreen:', error);
+                        });
+                    } else {
+                        console.warn('Fullscreen API not supported');
+                    }
+                } else {
+                    // Exit fullscreen
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen().then(() => {
+                            console.log('✓ Exited fullscreen mode');
+                            // Orientation will unlock automatically when exiting fullscreen
+                        }).catch((error) => {
+                            console.error('Failed to exit fullscreen:', error);
+                        });
+                    }
+                }
+            }
+
+            setupDebugToggle() {
+                this.debugCheckbox.addEventListener('change', () => {
+                    this.debugEnabled = this.debugCheckbox.checked;
+                    
+                    // Toggle debug info visibility
+                    if (this.debugEnabled) {
+                        this.debugElement.classList.add('visible');
+                        this.manualControls.classList.add('visible');
+                    } else {
+                        this.debugElement.classList.remove('visible');
+                        this.manualControls.classList.remove('visible');
+                    }
+                    
+                    // Update horizon line visibility
+                    this.updateHorizonLineVisibility();
+                    
+                    console.log(`Debug mode: ${this.debugEnabled ? 'enabled' : 'disabled'}`);
+                });
+            }
+            
+            updateHorizonLineVisibility() {
+                // Horizon line is a DEBUG feature - only show when debug mode is enabled
+                if (this.debugEnabled) {
+                    this.horizonLine.classList.add('visible');
+                } else {
+                    this.horizonLine.classList.remove('visible');
+                }
+            }
+            
+            setupFullscreenToggle() {
+                this.fullscreenToggle.addEventListener('click', () => {
+                    this.toggleFullscreen();
+                });
+            }
+
+            setupManualControls() {
+                // Angle buttons (0°, 90°, 180°, 270°)
+                document.querySelectorAll('.angle-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        this.enableManualMode();
+                        this.manualOrientation = parseInt(btn.dataset.angle);
+                        this.updateOrientationDisplay();
+                    });
+                });
+                
+                // AUTO button
+                document.querySelector('.auto-btn').addEventListener('click', () => {
+                    this.disableManualMode();
+                });
+                
+                // RANDOM button
+                document.querySelector('.random-btn').addEventListener('click', () => {
+                    this.enableManualMode();
+                    // Random angle: 0, 15, 30, 45, ... 345
+                    this.manualOrientation = Math.floor(Math.random() * 24) * 15;
+                    this.updateOrientationDisplay();
+                });
+                
+                // SHAKE button (test shake mode)
+                document.querySelector('.shake-btn').addEventListener('click', () => {
+                    if (this.shakeMode) {
+                        this.exitShakeMode();
+                    } else {
+                        this.enterShakeMode();
+                    }
+                });
+            }
+
+            enableManualMode() {
+                if (!this.manualMode) {
+                    this.manualMode = true;
+                    document.getElementById('manual-controls').classList.add('active');
+                    console.log('Manual orientation mode enabled');
+                }
+            }
+
+            disableManualMode() {
+                this.manualMode = false;
+                document.getElementById('manual-controls').classList.remove('active');
+                this.manualOrientation = this.autoOrientation;
+                console.log('Manual orientation mode disabled');
+            }
+
+            updateOrientationDisplay() {
+                const orientationInfo = document.getElementById('orientation-info');
+                if (orientationInfo) {
+                    const offsetMinutes = Math.round(this.timeOffset / 60000);
+                    const offsetSign = offsetMinutes >= 0 ? '+' : '';
+                    const currentHTML = orientationInfo.innerHTML;
+                    const lines = currentHTML.split('<br>');
+                    
+                    if (lines.length >= 3) {
+                        lines[0] = `Orientation: ${Math.round(this.displayRotation)}°${this.manualMode ? ' (manual)' : ''}`;
+                        orientationInfo.innerHTML = lines.join('<br>');
+                    }
+                }
+            }
+
+            enterShakeMode() {
+                console.log('🎲 Shake detected! Entering gravity mode...');
+                this.shakeMode = true;
+                this.accelHistory = []; // Clear history
+
+                // Add visual indicator
+                this.clock.classList.add('shake-mode');
+
+                // Update horizon line visibility
+                this.updateHorizonLineVisibility();
+
+                // Calculate where world gravity (screen-down) points in clock coordinates
+                // Since clock always rotates to stay upright (12 at top, 6 at bottom),
+                // gravity always points to 6 o'clock (180° in clock space)
+                let gravityAngle = 180;
+
+                // Normalize to 0-360
+                while (gravityAngle >= 360) gravityAngle -= 360;
+                while (gravityAngle < 0) gravityAngle += 360;
+
+                this.gravityAngle = gravityAngle;
+
+                console.log(`🎯 Gravity points to 6 o'clock (${this.gravityAngle}° in clock space), displayRotation=${this.displayRotation}°`);
+                
+                // Enable gravity mode for all hands
+                this.hourHand.enableGravityMode(this.gravityAngle);
+                this.minuteHand.enableGravityMode(this.gravityAngle);
+                this.secondHand.enableGravityMode(this.gravityAngle);
+                
+                // Set exit callback for when user drags any hand
+                const exitCallback = () => this.exitShakeMode();
+                this.hourHand.exitCallback = exitCallback;
+                this.minuteHand.exitCallback = exitCallback;
+                this.secondHand.exitCallback = exitCallback;
+            }
+
+            exitShakeMode() {
+                console.log('👋 Hand dragged! Exiting gravity mode...');
+                this.shakeMode = false;
+                
+                // Remove visual indicator
+                this.clock.classList.remove('shake-mode');
+                
+                // Update horizon line visibility
+                this.updateHorizonLineVisibility();
+                
+                // Disable gravity mode for all hands
+                this.hourHand.disableGravityMode();
+                this.minuteHand.disableGravityMode();
+                this.secondHand.disableGravityMode();
+                
+                // Clear exit callbacks
+                this.hourHand.exitCallback = null;
+                this.minuteHand.exitCallback = null;
+                this.secondHand.exitCallback = null;
+                
+                // Mark hands as manually set so clock continues from current positions
+                // This prevents jumping back to original time
+                this.hourHand.manuallySet = true;
+                this.minuteHand.manuallySet = true;
+                this.secondHand.manuallySet = true;
+                
+                // Reset velocities so hands don't coast
+                this.hourHand.velocity = 0;
+                this.minuteHand.velocity = 0;
+                this.secondHand.velocity = 0;
+                
+                console.log('Clock will continue from current hand positions');
+            }
+
+            setCurrentTime() {
+                const now = new Date();
+                const hours = now.getHours() % 12;
+                const minutes = now.getMinutes();
+                const seconds = now.getSeconds();
+                
+                this.hourHand.setAngle((hours + minutes / 60) * 30);
+                this.minuteHand.setAngle((minutes + seconds / 60) * 6);
+                this.secondHand.setAngle(seconds * 6);
+            }
+
+            startOrientationPolling() {
+                const eventSource = new EventSource('/orientation/stream');
+                
+                eventSource.onmessage = (event) => {
+                    if (!this.manualMode) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            this.updateOrientation(data);
+                        } catch (err) {
+                            console.error('Error parsing orientation data:', err);
+                        }
+                    }
+                };
+                
+                eventSource.onerror = (error) => {
+                    console.error('SSE connection error:', error);
+                    
+                    if (eventSource.readyState === EventSource.CLOSED) {
+                        console.log('SSE closed, falling back to Generic Sensor API...');
+                        eventSource.close();
+                        this.startGenericSensorAPI();
+                    }
+                };
+                
+                console.log('Connected to orientation SSE stream');
+            }
+            
+            startGenericSensorAPI() {
+                if (!window.isSecureContext) {
+                    console.warn('Generic Sensor API fallback unavailable: requires HTTPS or localhost');
+                    console.info('✓ No problem - using Pi Sensor Hat via SSE instead');
+                    return;
+                }
+
+                if (typeof RelativeOrientationSensor === 'undefined') {
+                    console.warn('Generic Sensor API not supported in this browser');
+                    console.info('✓ No problem - using Pi Sensor Hat via SSE instead');
+                    return;
+                }
+                
+                console.log('Attempting Generic Sensor API fallback...');
+                
+                if (navigator.permissions && navigator.permissions.query) {
+                    navigator.permissions.query({ name: 'accelerometer' })
+                        .then(permissionStatus => {
+                            console.log('Accelerometer permission:', permissionStatus.state);
+                            
+                            if (permissionStatus.state === 'denied') {
+                                console.warn('Sensor permission denied - using Pi Sensor Hat via SSE instead');
+                                return;
+                            }
+                            
+                            this.startSensor();
+                        })
+                        .catch(err => {
+                            console.warn('Permission query failed:', err.message);
+                            this.startSensor();
+                        });
+                } else {
+                    console.log('Permissions API not available, trying sensor directly');
+                    this.startSensor();
+                }
+            }
+            
+            startSensor() {
+                try {
+                    // Try to start Accelerometer for shake detection (if available)
+                    if (typeof Accelerometer !== 'undefined') {
+                        try {
+                            const accel = new Accelerometer({ frequency: 20 }); // 20Hz
+                            
+                            accel.addEventListener('reading', () => {
+                                // Store real accelerometer data for shake detection
+                                const accelData = {
+                                    x: accel.x / 9.8,  // Convert to g units
+                                    y: accel.y / 9.8,
+                                    z: accel.z / 9.8,
+                                    raw: true  // Mark as raw accelerometer data
+                                };
+                                
+                                // Send to shake detection (but not orientation calculation)
+                                this.handleAccelerometerData(accelData);
+                            });
+                            
+                            accel.addEventListener('error', (event) => {
+                                console.warn('Accelerometer error:', event.error.name);
+                            });
+                            
+                            accel.start();
+                            console.log('✓ Accelerometer active for shake detection');
+                            this.accelerometer = accel;
+                        } catch (error) {
+                            console.warn('Accelerometer not available:', error.message);
+                        }
+                    }
+                    
+                    // Start RelativeOrientationSensor for display rotation
+                    const options = { frequency: 10 };
+                    const sensor = new RelativeOrientationSensor(options);
+                    
+                    sensor.addEventListener('reading', () => {
+                        if (!this.manualMode) {
+                            const [qx, qy, qz, qw] = sensor.quaternion;
+                            
+                            const sinr_cosp = 2 * (qw * qx + qy * qz);
+                            const cosr_cosp = 1 - 2 * (qx * qx + qy * qy);
+                            const roll = Math.atan2(sinr_cosp, cosr_cosp);
+                            
+                            const sinp = 2 * (qw * qy - qz * qx);
+                            const pitch = Math.abs(sinp) >= 1 ? 
+                                Math.sign(sinp) * Math.PI / 2 : 
+                                Math.asin(sinp);
+                            
+                            const x = Math.sin(roll);
+                            const y = Math.sin(pitch);
+                            const z = Math.sqrt(Math.max(0, 1 - x*x - y*y));
+                            
+                            this.updateOrientation({ x, y, z });
+                        }
+                    });
+                    
+                    sensor.addEventListener('error', (event) => {
+                        console.error('Sensor error:', event.error);
+                        let errorMessage = 'Sensor error: ' + event.error.name;
+                        
+                        if (event.error.name === 'NotAllowedError') {
+                            errorMessage = 'Permission denied. Please allow sensor access.';
+                        } else if (event.error.name === 'NotReadableError') {
+                            errorMessage = 'Sensor not readable. Check permissions or try HTTPS.';
+                        } else if (event.error.name === 'NotFoundError') {
+                            errorMessage = 'No orientation sensor found on device.';
+                        }
+                        
+                        this.showSensorError(errorMessage);
+                    });
+                    
+                    sensor.start();
+                    console.log('✓ Generic Sensor API active (RelativeOrientationSensor)');
+                    
+                    this.orientationSensor = sensor;
+                    
+                } catch (error) {
+                    console.error('Failed to start Generic Sensor API:', error);
+                    
+                    let errorMessage = 'Failed to start sensors: ' + error.message;
+                    
+                    if (error.name === 'SecurityError') {
+                        errorMessage = 'Security error. Sensors require HTTPS or localhost.';
+                    }
+                    
+                    this.showSensorError(errorMessage);
+                }
+            }
+            
+            handleAccelerometerData(data) {
+                // Use real accelerometer data for shake detection
+                // Only detect back-and-forth Z-axis motion (actual shaking)
+                if (!this.manualMode && !this.shakeMode && data.raw) {
+                    const now = Date.now();
+
+                    // Store Z-axis history only
+                    this.accelHistory.push({ time: now, z: data.z });
+
+                    // Remove old entries (600ms window)
+                    this.accelHistory = this.accelHistory.filter(entry =>
+                        now - entry.time < 600
+                    );
+
+                    // Detect Z-axis direction reversals (back-and-forth motion)
+                    if (this.accelHistory.length > 6) {
+                        let zDirectionReversals = 0;
+                        let maxZChange = 0;
+                        let prevZDiff = 0;
+
+                        for (let i = 1; i < this.accelHistory.length; i++) {
+                            const prev = this.accelHistory[i - 1];
+                            const curr = this.accelHistory[i];
+
+                            // Skip if either entry doesn't have z value
+                            if (prev.z === undefined || curr.z === undefined) continue;
+
+                            // Calculate Z-axis change (in g units: data.z / 9.8 was already done)
+                            const zDiff = curr.z - prev.z;
+                            maxZChange = Math.max(maxZChange, Math.abs(zDiff));
+
+                            // Check if Z direction reversed (sign changed)
+                            if (i > 1 && prevZDiff !== 0 && zDiff !== 0) {
+                                // Both must be significant to count as reversal
+                                // For raw accelerometer in m/s², use 2.0 threshold
+                                if (Math.abs(prevZDiff) > 2.0 && Math.abs(zDiff) > 2.0) {
+                                    // Check if signs are opposite (direction reversal)
+                                    if ((prevZDiff > 0 && zDiff < 0) || (prevZDiff < 0 && zDiff > 0)) {
+                                        zDirectionReversals++;
+                                    }
+                                }
+                            }
+
+                            prevZDiff = zDiff;
+                        }
+
+                        // Debug output
+                        if (zDirectionReversals > 0 || maxZChange > 1.0) {
+                            console.log(`[Accel Debug] Z-direction-reversals: ${zDirectionReversals} (thresh: 2), max Z-change: ${maxZChange.toFixed(1)} m/s²`);
+                        }
+
+                        // Trigger shake: need 2+ Z-axis direction reversals
+                        if (zDirectionReversals >= 2) {
+                            console.log(`🎲 Shake detected! (raw accelerometer: Z-direction-reversals=${zDirectionReversals})`);
+                            this.enterShakeMode();
+                        }
+                    }
+                }
+            }
+            
+            showSensorError(message) {
+                const orientationInfo = document.getElementById('orientation-info');
+                if (orientationInfo) {
+                    let suggestions = '';
+                    
+                    if (message.includes('permission') || message.includes('Permission')) {
+                        suggestions = '<br><small>• Check browser permissions for motion sensors</small>';
+                    } else if (message.includes('HTTPS') || message.includes('readable')) {
+                        suggestions = '<br><small>• Requires HTTPS or localhost</small><br><small>• Current: ' + window.location.protocol + '//' + window.location.host + '</small>';
+                    } else if (message.includes('not found') || message.includes('No orientation')) {
+                        suggestions = '<br><small>• Device has no orientation sensor</small><br><small>• Use manual controls (top-right)</small>';
+                    }
+
+                    orientationInfo.innerHTML = `
+                        <span style="color: #e74c3c;">${message}</span>${suggestions}<br>
+                        <br>
+                        Orientation: disabled<br>
+                        Use manual controls →
+                    `;
+                }
+                
+                console.log('%c Sensor Status:', 'font-weight: bold', message);
+            }
+
+            updateOrientation(data) {
+                const { x, y, z } = data;
+                
+                // Shake detection (only when not in manual mode)
+                // Only detect physical back-and-forth motion via Z-axis changes
+                if (!this.manualMode && !this.shakeMode) {
+                    const now = Date.now();
+
+                    // Store acceleration history (only Z-axis matters)
+                    this.accelHistory.push({ time: now, z });
+
+                    // Remove old entries (600ms window)
+                    this.accelHistory = this.accelHistory.filter(entry =>
+                        now - entry.time < 600
+                    );
+
+                    // Detect Z-axis direction reversals (back-and-forth motion)
+                    if (this.accelHistory.length > 6) {
+                        let zDirectionReversals = 0;
+                        let maxZChange = 0;
+                        let prevZDiff = 0;
+
+                        for (let i = 1; i < this.accelHistory.length; i++) {
+                            const prev = this.accelHistory[i - 1];
+                            const curr = this.accelHistory[i];
+
+                            // Calculate Z-axis change
+                            const zDiff = curr.z - prev.z;
+                            maxZChange = Math.max(maxZChange, Math.abs(zDiff));
+
+                            // Check if Z direction reversed (sign changed)
+                            if (i > 1 && prevZDiff !== 0 && zDiff !== 0) {
+                                // Both must be significant (> 0.3g) to count as reversal
+                                if (Math.abs(prevZDiff) > 0.3 && Math.abs(zDiff) > 0.3) {
+                                    // Check if signs are opposite (direction reversal)
+                                    if ((prevZDiff > 0 && zDiff < 0) || (prevZDiff < 0 && zDiff > 0)) {
+                                        zDirectionReversals++;
+                                    }
+                                }
+                            }
+
+                            prevZDiff = zDiff;
+                        }
+
+                        // Debug logging every 500ms when there's significant motion
+                        if (!this.lastShakeDebug || now - this.lastShakeDebug > 500) {
+                            if (zDirectionReversals > 0 || maxZChange > 0.2) {
+                                console.log(`[Shake Debug] Z-direction-reversals: ${zDirectionReversals} (thresh: 2), max Z-change: ${maxZChange.toFixed(2)}g`);
+                                this.lastShakeDebug = now;
+                            }
+                        }
+
+                        // Trigger shake: need 2+ Z-axis direction reversals (back-and-forth motion)
+                        if (zDirectionReversals >= 2) {
+                            console.log(`🎲 Shake detected! Z-direction-reversals: ${zDirectionReversals}`);
+                            this.enterShakeMode();
+                        }
+                    }
+                }
+                
+                // Calculate rotation angle (only log occasionally to reduce spam)
+                const now = Date.now();
+                const shouldLog = !this.lastOrientationLog || now - this.lastOrientationLog > 1000;
+                
+                if (shouldLog) {
+                    console.log(`Raw accel: x=${x.toFixed(3)}, y=${y.toFixed(3)}, z=${z.toFixed(3)}`);
+                    this.lastOrientationLog = now;
+                }
+                
+                let angle = Math.atan2(x, y) * (180 / Math.PI);
+                
+                // Flip the coordinate system - when device is upright (y≈-1), we want angle≈0
+                angle = Math.atan2(-x, -y) * (180 / Math.PI);
+                
+                // Apply rotation directly (no negation) to compensate for device rotation
+                this.autoOrientation = angle;
+                
+                if (!this.manualMode) {
+                    const newRotation = this.autoOrientation;
+                    const rotationChanged = newRotation !== this.displayRotation;
+                    
+                    if (rotationChanged) {
+                        const rotationChange = newRotation - this.displayRotation;
+                        this.previousDisplayRotation = this.displayRotation;
+                        this.displayRotation = newRotation;
+                        
+                        // Apply inertia to hands when clock rotates in shake mode
+                        if (this.shakeMode) {
+                            // Apply inertia to each hand
+                            this.hourHand.applyClockRotationInertia(rotationChange);
+                            this.minuteHand.applyClockRotationInertia(rotationChange);
+                            this.secondHand.applyClockRotationInertia(rotationChange);
+
+                            // Gravity stays at 180° (6 o'clock)
+                            this.gravityAngle = 180;
+
+                            // Update gravity target
+                            this.hourHand.updateGravityTarget(this.gravityAngle);
+                            this.minuteHand.updateGravityTarget(this.gravityAngle);
+                            this.secondHand.updateGravityTarget(this.gravityAngle);
+                        }
+                    } else {
+                        this.displayRotation = newRotation;
+                    }
+                    
+                    this.displayElement.style.transform = `rotate(${this.displayRotation}deg)`;
+                }
+                
+                // Update orientation info
+                const orientationInfo = document.getElementById('orientation-info');
+                if (orientationInfo) {
+                    const offsetMinutes = Math.round(this.timeOffset / 60000);
+                    const offsetSign = offsetMinutes >= 0 ? '+' : '';
+                    
+                    let modeIndicator = '';
+                    if (this.shakeMode) {
+                        modeIndicator = ' <span style="color: #e74c3c;">[SHAKE]</span>';
+                    } else if (this.manualMode) {
+                        modeIndicator = ' (manual)';
+                    }
+                    
+                    orientationInfo.innerHTML = `
+                        Orientation: ${this.displayRotation}°${modeIndicator}<br>
+                        Accel: x:${x.toFixed(2)} y:${y.toFixed(2)} z:${z.toFixed(2)}<br>
+                        Time offset: ${offsetSign}${offsetMinutes}m
+                    `;
+                }
+            }
+
+            updateDisplay() {
+                const displayTime = new Date(Date.now() + this.timeOffset);
+                const hours = displayTime.getHours();
+                const minutes = displayTime.getMinutes();
+                const seconds = displayTime.getSeconds();
+                
+                const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                const timeDisplay = document.getElementById('time-display');
+                if (timeDisplay) {
+                    timeDisplay.textContent = timeStr;
+                }
+                
+                const orientationInfo = document.getElementById('orientation-info');
+                if (orientationInfo) {
+                    const offsetMinutes = Math.round(this.timeOffset / 60000);
+                    const offsetSign = offsetMinutes >= 0 ? '+' : '';
+                    
+                    const currentHTML = orientationInfo.innerHTML;
+                    const lines = currentHTML.split('<br>');
+                    
+                    if (lines.length >= 3) {
+                        lines[2] = `Time offset: ${offsetSign}${offsetMinutes}m`;
+                        orientationInfo.innerHTML = lines.join('<br>');
+                    }
+                }
+
+                // Apply manual orientation if in manual mode
+                if (this.manualMode) {
+                    const newRotation = -this.manualOrientation;
+                    const rotationChanged = newRotation !== this.displayRotation;
+                    
+                    if (rotationChanged) {
+                        const rotationChange = newRotation - this.displayRotation;
+                        this.previousDisplayRotation = this.displayRotation;
+                        this.displayRotation = newRotation;
+                        
+                        this.displayElement.style.transform = `rotate(${this.displayRotation}deg)`;
+                        this.updateOrientationDisplay();
+                        
+                        // Apply inertia to hands when clock rotates
+                        if (this.shakeMode) {
+                            console.log(`🔄 Clock rotated from ${this.previousDisplayRotation}° to ${this.displayRotation}° (change: ${rotationChange.toFixed(1)}°)`);
+
+                            // Apply inertia to each hand
+                            this.hourHand.applyClockRotationInertia(rotationChange);
+                            this.minuteHand.applyClockRotationInertia(rotationChange);
+                            this.secondHand.applyClockRotationInertia(rotationChange);
+
+                            // Gravity stays at 180° (6 o'clock)
+                            this.gravityAngle = 180;
+                            
+                            // Update gravity target (but no inertia from this since target doesn't change)
+                            this.hourHand.updateGravityTarget(this.gravityAngle);
+                            this.minuteHand.updateGravityTarget(this.gravityAngle);
+                            this.secondHand.updateGravityTarget(this.gravityAngle);
+                        }
+                    } else {
+                        this.displayElement.style.transform = `rotate(${this.displayRotation}deg)`;
+                        this.updateOrientationDisplay();
+                    }
+                }
+            }
+
+            animate() {
+                const currentTime = Date.now();
+                const deltaTime = currentTime - this.lastUpdateTime;
+                this.lastUpdateTime = currentTime;
+                
+                // Always update hand physics (inertia or gravity)
+                this.hourHand.update();
+                this.minuteHand.update();
+                this.secondHand.update();
+                
+                // Skip time updates when in shake mode
+                if (this.shakeMode) {
+                    this.updateDisplay();
+                    requestAnimationFrame(() => this.animate());
+                    return;
+                }
+                
+                // Normal clock operation (when not in shake mode)
+                const hourMinuteCorrectionRate = (3 / 60);
+                const secondCorrectionRate = (12 / 60);
+                
+                if ((this.hourHand.manuallySet || this.minuteHand.manuallySet || this.secondHand.manuallySet) &&
+                    !this.hourHand.isDragging && !this.minuteHand.isDragging && !this.secondHand.isDragging &&
+                    this.hourHand.velocity === 0 && this.minuteHand.velocity === 0 && this.secondHand.velocity === 0) {
+                    
+                    const setMinutes = (this.minuteHand.angle / 6);
+                    const setSeconds = (this.secondHand.angle / 6);
+                    const setHours = Math.floor(this.hourHand.angle / 30);
+                    
+                    const setTime = new Date();
+                    setTime.setHours(Math.floor(setHours));
+                    setTime.setMinutes(Math.floor(setMinutes));
+                    setTime.setSeconds(Math.floor(setSeconds));
+                    setTime.setMilliseconds(0);
+                    
+                    this.timeOffset = setTime.getTime() - currentTime;
+                    
+                    this.hourHand.manuallySet = false;
+                    this.minuteHand.manuallySet = false;
+                    this.secondHand.manuallySet = false;
+                }
+                
+                const displayTime = new Date(currentTime + this.timeOffset);
+                const hours = displayTime.getHours() % 12;
+                const minutes = displayTime.getMinutes();
+                const seconds = displayTime.getSeconds();
+                const milliseconds = displayTime.getMilliseconds();
+                
+                const targetSecondAngle = (seconds + milliseconds / 1000) * 6;
+                const targetMinuteAngle = (minutes + seconds / 60) * 6;
+                const targetHourAngle = (hours + minutes / 60) * 30;
+                
+                if (!this.secondHand.isDragging && this.secondHand.velocity === 0) {
+                    const diff = this.getAngleDifference(targetSecondAngle, this.secondHand.angle);
+                    const correction = Math.sign(diff) * Math.min(Math.abs(diff), secondCorrectionRate);
+                    this.secondHand.angle += correction;
+                }
+                
+                if (!this.minuteHand.isDragging && this.minuteHand.velocity === 0) {
+                    const diff = this.getAngleDifference(targetMinuteAngle, this.minuteHand.angle);
+                    const correction = Math.sign(diff) * Math.min(Math.abs(diff), hourMinuteCorrectionRate);
+                    this.minuteHand.angle += correction;
+                }
+                
+                if (!this.hourHand.isDragging && this.hourHand.velocity === 0) {
+                    const diff = this.getAngleDifference(targetHourAngle, this.hourHand.angle);
+                    const correction = Math.sign(diff) * Math.min(Math.abs(diff), hourMinuteCorrectionRate);
+                    this.hourHand.angle += correction;
+                }
+                
+                this.updateDisplay();
+                
+                requestAnimationFrame(() => this.animate());
+            }
+            
+            getAngleDifference(target, current) {
+                let diff = target - current;
+                while (diff > 180) diff -= 360;
+                while (diff < -180) diff += 360;
+                return diff;
+            }
+        }
+
+        window.addEventListener('load', () => {
+            new Clock();
+        });
+    </script>
+</body>
+</html>
