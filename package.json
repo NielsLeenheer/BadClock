@@ -1,0 +1,13 @@
+{
+  "name": "badclock",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^6",
+    "vite-plugin-singlefile": "^2"
+  }
+}

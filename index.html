@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Bad Clock</title>
+</head>
+<body>
+    <!-- Shared SVG filter for segment glow -->
+    <svg style="position:absolute;width:0;height:0;pointer-events:none">
+        <defs>
+            <filter id="segment-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+                <feMerge>
+                    <feMergeNode in="blur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
+        </defs>
+    </svg>
+
+    <div id="clock">
+        <div id="analog">
+            <div id="horizon-line"></div>
+            <div id="hour-hand" class="hand"></div>
+            <div id="minute-hand" class="hand"></div>
+            <div id="second-hand" class="hand"></div>
+            <div class="center-dot"></div>
+        </div>
+        <div id="digital"></div>
+    </div>
+
+    <div id="fullscreen-toggle">
+        <span>⛶ Fullscreen</span>
+    </div>
+
+    <div id="debug-toggle">
+        <input type="checkbox" id="debug-checkbox">
+        <label for="debug-checkbox">Debug</label>
+    </div>
+
+    <div id="debug-info">
+        <div id="time-display" style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">00:00:00</div>
+        <div id="orientation-info">
+            Orientation: 0°<br>
+            Accel: x:0 y:0 z:0<br>
+            Time offset: +0m
+        </div>
+    </div>
+
+    <!-- Manual orientation controls panel -->
+    <div id="manual-controls">
+        <div class="angle-buttons">
+            <button class="control-btn control-btn--blue angle-btn" data-angle="0">0°</button>
+            <button class="control-btn control-btn--blue angle-btn" data-angle="90">90°</button>
+            <button class="control-btn control-btn--blue angle-btn" data-angle="180">180°</button>
+            <button class="control-btn control-btn--blue angle-btn" data-angle="270">270°</button>
+        </div>
+        <button class="control-btn control-btn--green auto-btn">AUTO</button>
+        <button class="control-btn control-btn--purple random-btn">RANDOM</button>
+        <button class="control-btn control-btn--orange shake-btn">SHAKE</button>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>

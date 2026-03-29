@@ -1,0 +1,31 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+body {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Arial', sans-serif;
+}
+
+#clock {
+    position: relative;
+    width: min(90vmin, 1000px);
+    height: min(90vmin, 1000px);
+    overflow: hidden;
+    border-radius: 50%;
+}
+
+body.localhost #clock {
+    width: 100vmin;
+    height: 100vmin;
+}

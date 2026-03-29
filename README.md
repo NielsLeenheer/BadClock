@@ -26,22 +26,57 @@ Swipe from the left or right edge of the screen to slide between digital (left) 
 
 ## How it works
 
-The project has three main parts:
+The clock UI is built as a modular JavaScript application, bundled with Vite into a single standalone HTML file.
 
-**[server.py](server.py)** - A Flask server that reads orientation data from the Sense HAT at ~30Hz. It uses the IMU's sensor fusion (accelerometer + gyroscope + magnetometer) for stable readings, applies exponential smoothing to the display angle, and exposes the data via a REST endpoint (`/orientation`) and a Server-Sent Events stream (`/orientation/stream`). On machines without a Sense HAT, it runs in simulation mode with a slowly rotating angle.
+**Server** ([public/server.py](public/server.py)) - A Flask server that reads orientation data from the Sense HAT at ~30Hz. It uses the IMU's sensor fusion (accelerometer + gyroscope + magnetometer) for stable readings, applies exponential smoothing to the display angle, and exposes the data via a REST endpoint (`/orientation`) and a Server-Sent Events stream (`/orientation/stream`). On machines without a Sense HAT, it runs in simulation mode.
 
-**[clock.html](clock.html)** - The clock UI rendered in HTML/CSS/JS, served by the Flask app. It connects to the orientation stream and counter-rotates the clock face to compensate for physical rotation. Rotation uses a dead zone (8°) to avoid jitter from screen touches, and snaps to the nearest 90° angle after 800ms of stillness. On the Pi (localhost), it runs full-screen with a minimal look; elsewhere, it shows a visible clock face.
+**Clock UI** ([src/](src/)) - The frontend, split into modules:
 
-**[diagnostics.py](diagnostics.py)** - A standalone I2C diagnostic tool that scans the bus for sensors and tests accelerometer readings. Useful for debugging hardware issues.
+| Module | Description |
+|---|---|
+| [main.js](src/main.js) | Entry point — creates Clock, wires orientation source, swipe, and debug panel |
+| [clock.js](src/clock.js) | Facade — owns clock faces, mode switching, rotation, and shake detection |
+| [clock/analog.js](src/clock/analog.js) | Analog face — three hands with drag, inertia, and gravity physics |
+| [clock/digital.js](src/clock/digital.js) | Digital face — 7-segment display with tap-to-edit |
+| [clock/hand.js](src/clock/hand.js) | Single clock hand — touch interaction, gravity mode |
+| [clock/mode-switcher.js](src/clock/mode-switcher.js) | Slide transitions between any number of modes |
+| [clock/swipe-switch.js](src/clock/swipe-switch.js) | Rotation-aware edge-swipe detection |
+| [orientation.js](src/orientation.js) | Sensor data — SSE from Pi + Generic Sensor API fallback |
+| [shake-detector.js](src/shake-detector.js) | Shake gesture detection from Z-axis acceleration |
+| [rotation-controller.js](src/rotation-controller.js) | Display rotation with dead zone and snap-to-90° |
+| [debug-panel.js](src/debug-panel.js) | Debug toggle, manual controls, sensor error display |
 
-## Installation
+**Diagnostics** ([public/diagnostics.py](public/diagnostics.py)) - A standalone I2C diagnostic tool that scans the bus for sensors and tests accelerometer readings.
 
-### Quick setup
+## Building
 
-Clone the repo onto your Pi and run the setup script:
+The frontend is built with [Vite](https://vite.dev/) using [vite-plugin-singlefile](https://github.com/nicely-gg/vite-plugin-singlefile) to produce a single self-contained HTML file.
 
 ```bash
-git clone <repo-url> ~/clock
+npm install
+npm run build
+```
+
+This outputs `dist/` containing the built `index.html` plus the server-side files (`server.py`, `setup.sh`, `requirements.txt`, `diagnostics.py`) copied from `public/`.
+
+For development with hot reload:
+
+```bash
+npm run dev
+```
+
+## Deploying to the Pi
+
+Copy the `dist/` directory to the Pi:
+
+```bash
+scp -r dist/* admin@<pi-ip>:~/clock/
+```
+
+Then run the setup script on the Pi:
+
+```bash
+ssh admin@<pi-ip>
 cd ~/clock
 bash setup.sh
 ```
@@ -55,34 +90,6 @@ The setup script will:
 6. Print instructions for configuring PiOSK to show the clock at boot
 
 A reboot may be required if I2C wasn't previously enabled.
-
-### Manual setup
-
-```bash
-sudo apt-get install -y python3-pip i2c-tools python3-flask python3-flask-cors sense-hat
-pip3 install -r requirements.txt
-```
-
-## Running
-
-### Manually
-
-```bash
-python3 server.py
-```
-
-The clock will be available at `http://localhost:5000`.
-
-### As a service
-
-If you used `setup.sh`, the clock runs automatically on boot via systemd:
-
-```bash
-sudo systemctl status clock-server   # check status
-sudo journalctl -u clock-server -f   # view logs
-sudo systemctl restart clock-server  # restart
-sudo systemctl stop clock-server     # stop
-```
 
 ### Display with PiOSK
 
@@ -99,7 +106,7 @@ Configure [PiOSK](https://github.com/nicely-gg/piosk) to open `http://localhost:
 
 ## Diagnostics
 
-To troubleshoot sensor issues:
+To troubleshoot sensor issues on the Pi:
 
 ```bash
 python3 diagnostics.py

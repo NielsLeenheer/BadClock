@@ -236,7 +236,7 @@ sensor.start_reading()
 @app.route('/')
 def index():
     """Serve the clock HTML page"""
-    return send_file('/home/admin/clock/clock.html')
+    return send_file('/home/admin/clock/index.html')
 
 
 @app.route('/orientation')
