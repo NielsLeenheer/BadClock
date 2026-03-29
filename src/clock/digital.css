@@ -33,7 +33,7 @@
 
 .segment {
     cursor: pointer;
-    transition: fill 0.12s, opacity 0.12s;
+    transition: fill 0.12s;
 }
 
 .segment.on {

@@ -36,6 +36,11 @@ for (const [digit, segs] of Object.entries(DIGIT_MAP)) {
     PATTERN_TO_DIGIT[key] = parseInt(digit);
 }
 
+// Decay config
+const DECAY_DURATION = 20 * 60 * 1000; // 20 minutes from full to minimum
+const DECAY_MIN = 0.15;                // minimum opacity (never fully off)
+const FLICKER_CHANCE = 0.00002;         // per segment per frame (~1 in 50000)
+
 export class DigitalClock {
     /**
      * @param {HTMLElement} container
@@ -78,6 +83,8 @@ export class DigitalClock {
         svg.classList.add('digit-svg');
 
         const segments = {};
+        const segState = {};
+
         for (const [name, pts] of Object.entries(SEG_PTS)) {
             const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
             poly.setAttribute('points', pts);
@@ -88,6 +95,10 @@ export class DigitalClock {
 
             svg.appendChild(poly);
             segments[name] = poly;
+            segState[name] = {
+                litSince: null,    // timestamp when this segment was last turned on
+                flickering: false, // in broken-flicker state
+            };
         }
 
         // Single click handler on the SVG - find nearest segment
@@ -120,6 +131,7 @@ export class DigitalClock {
             el: wrap,
             svg,
             segments,
+            segState,
             state: 'normal',
             segOn: { a: false, b: false, c: false, d: false, e: false, f: false, g: false },
             editTimeout: null,
@@ -143,7 +155,14 @@ export class DigitalClock {
         d.state = 'editing';
         d.el.classList.add('editing');
 
+        // Toggle the segment
         d.segOn[segName] = !d.segOn[segName];
+
+        // Touch resets decay and clears flicker
+        const ss = d.segState[segName];
+        ss.litSince = d.segOn[segName] ? Date.now() : null;
+        ss.flickering = false;
+
         this.renderDigit(di);
 
         if (d.editTimeout) clearTimeout(d.editTimeout);
@@ -228,11 +247,38 @@ export class DigitalClock {
 
     renderDigit(di) {
         const d = this.digits[di];
+        const now = Date.now();
+
         for (const [name, poly] of Object.entries(d.segments)) {
             const on = d.segOn[name];
+            const ss = d.segState[name];
+
             poly.classList.toggle('on', on);
             poly.classList.toggle('off', !on);
+
+            if (on) {
+                const opacity = this.getSegmentOpacity(ss, now);
+                poly.style.opacity = opacity;
+            } else {
+                poly.style.opacity = '';
+            }
         }
+    }
+
+    getSegmentOpacity(ss, now) {
+        // Flickering overrides decay
+        if (ss.flickering) {
+            return Math.random() > 0.5 ? 1.0 : 0.1;
+        }
+
+        // Decay: linear from 1.0 to DECAY_MIN over DECAY_DURATION
+        if (!ss.litSince) return 1.0;
+
+        const elapsed = now - ss.litSince;
+        if (elapsed <= 0) return 1.0;
+        if (elapsed >= DECAY_DURATION) return DECAY_MIN;
+
+        return 1.0 - (1.0 - DECAY_MIN) * (elapsed / DECAY_DURATION);
     }
 
     setDigitValue(di, value) {
@@ -240,10 +286,37 @@ export class DigitalClock {
         if (d.state !== 'normal') return;
 
         const pattern = DIGIT_MAP[value] || '';
+        const now = Date.now();
+        let changed = false;
+
         for (const s of 'abcdefg') {
-            d.segOn[s] = pattern.includes(s);
+            const wasOn = d.segOn[s];
+            const isOn = pattern.includes(s);
+            d.segOn[s] = isOn;
+
+            const ss = d.segState[s];
+
+            if (isOn && !wasOn) {
+                // Segment just turned on — reset decay and flicker
+                ss.litSince = now;
+                ss.flickering = false;
+                changed = true;
+            } else if (!isOn && wasOn) {
+                // Segment turned off — reset
+                ss.litSince = null;
+                ss.flickering = false;
+                changed = true;
+            } else if (isOn) {
+                // Segment staying on — maybe start flickering
+                if (!ss.flickering && Math.random() < FLICKER_CHANCE) {
+                    ss.flickering = true;
+                }
+            }
         }
-        this.renderDigit(di);
+
+        if (changed) {
+            this.renderDigit(di);
+        }
     }
 
     /* ---- Called every frame ---- */
@@ -259,6 +332,11 @@ export class DigitalClock {
 
         for (let i = 0; i < 4; i++) {
             this.setDigitValue(i, vals[i]);
+        }
+
+        // Re-render every frame to update decay opacity and flicker
+        for (let i = 0; i < 4; i++) {
+            this.renderDigit(i);
         }
     }
 }
