@@ -447,6 +447,56 @@ export class Hand {
         let dragPosOffset = Vec2(0, 0);
         let wasModeBeforeDrag = 'clock';
 
+        // Ring buffer for frequency-independent velocity estimation
+        const SAMPLE_WINDOW = 100; // ms — use samples from this recent window
+        const angleSamples = [];   // { time, angle }
+        const posSamples = [];     // { time, x, y }
+
+        const addAngleSample = (time, angle) => {
+            angleSamples.push({ time, angle });
+            while (angleSamples.length > 0 && time - angleSamples[0].time > SAMPLE_WINDOW * 2) {
+                angleSamples.shift();
+            }
+        };
+
+        const addPosSample = (time, x, y) => {
+            posSamples.push({ time, x, y });
+            while (posSamples.length > 0 && time - posSamples[0].time > SAMPLE_WINDOW * 2) {
+                posSamples.shift();
+            }
+        };
+
+        const getAngularVelocity = (now) => {
+            // Find oldest sample within SAMPLE_WINDOW
+            let oldest = null;
+            for (const s of angleSamples) {
+                if (now - s.time <= SAMPLE_WINDOW) { oldest = s; break; }
+            }
+            const newest = angleSamples[angleSamples.length - 1];
+            if (!oldest || !newest || oldest === newest) return 0;
+            const dt = newest.time - oldest.time;
+            if (dt < 8) return 0; // need at least ~8ms span
+            let delta = newest.angle - oldest.angle;
+            if (delta > 180) delta -= 360;
+            if (delta < -180) delta += 360;
+            return (delta / dt) * 1000; // deg/sec
+        };
+
+        const getLinearVelocity = (now) => {
+            let oldest = null;
+            for (const s of posSamples) {
+                if (now - s.time <= SAMPLE_WINDOW) { oldest = s; break; }
+            }
+            const newest = posSamples[posSamples.length - 1];
+            if (!oldest || !newest || oldest === newest) return Vec2(0, 0);
+            const dt = newest.time - oldest.time;
+            if (dt < 8) return Vec2(0, 0);
+            return Vec2(
+                (newest.x - oldest.x) / dt * 1000,
+                (newest.y - oldest.y) / dt * 1000,
+            );
+        };
+
         const startDrag = (e) => {
             this._isDragging = true;
             this._manuallySet = true;
@@ -455,8 +505,9 @@ export class Hand {
             const screenAngle = getScreenAngleFromEvent(e);
             const modelAngle = screenToModelAngle(screenAngle);
             this._dragOffset = this.angle - modelAngle;
-            this._lastDragTime = Date.now();
-            trackedVelocity = 0;
+            this._lastDragTime = performance.now();
+            angleSamples.length = 0;
+            posSamples.length = 0;
 
             // 1-in-50 chance the hand detaches when picked up from time model
             if (this.isInTimeModel && (Hand.forceDetachOnDrag || Math.random() < 1 / 10)) {
@@ -521,17 +572,8 @@ export class Hand {
                 this.body.setLinearVelocity(Vec2(0, 0));
                 this.body.setAngularVelocity(0);
 
-                const now = Date.now();
-                const dt = now - this._lastDragTime;
-                if (dt > 0) {
-                    const vx = (newPos.x - lastDragPos.x) / dt * 1000;
-                    const vy = (newPos.y - lastDragPos.y) / dt * 1000;
-                    trackedLinearVel = Vec2(
-                        vx * 0.7 + trackedLinearVel.x * 0.3,
-                        vy * 0.7 + trackedLinearVel.y * 0.3
-                    );
-                }
-                lastDragPos = newPos;
+                const now = performance.now();
+                addPosSample(now, newPos.x, newPos.y);
                 this._lastDragTime = now;
             } else {
                 const screenAngle = getScreenAngleFromEvent(e);
@@ -543,18 +585,8 @@ export class Hand {
                 this.body.setAngularVelocity(0);
                 this.body.setLinearVelocity(Vec2(0, 0));
 
-                const now = Date.now();
-                const dt = now - this._lastDragTime;
-                if (dt > 0) {
-                    const prevAngle = this._lastModelAngle ?? modelAngle;
-                    let delta = modelAngle - prevAngle;
-                    if (delta > 180) delta -= 360;
-                    if (delta < -180) delta += 360;
-
-                    const instantVel = (delta / dt) * 1000;
-                    trackedVelocity = instantVel * 0.7 + trackedVelocity * 0.3;
-                }
-                this._lastModelAngle = modelAngle;
+                const now = performance.now();
+                addAngleSample(now, modelAngle);
                 this._lastDragTime = now;
             }
 
@@ -567,11 +599,12 @@ export class Hand {
             this._lastModelAngle = null;
             this.element.classList.remove('dragging');
 
-            const timeSinceMove = Date.now() - this._lastDragTime;
-            const releaseVel = timeSinceMove < 50 ? trackedVelocity * 0.5 : 0;
+            const now = performance.now();
+            const timeSinceMove = now - this._lastDragTime;
+            const releaseVel = timeSinceMove < 150 ? getAngularVelocity(now) : 0;
 
             // Flick detach (from time model)
-            if (Math.abs(releaseVel) > 1500 && wasModeBeforeDrag !== 'detached' && wasModeBeforeDrag !== 'gravity') {
+            if (Math.abs(releaseVel) > 1250 && wasModeBeforeDrag !== 'detached' && wasModeBeforeDrag !== 'gravity') {
                 // Convert body state to gravity model and detach
                 const angVelRad = -releaseVel * DEG;
                 const handAngle = this.body.getAngle();
@@ -617,11 +650,9 @@ export class Hand {
                     maskBits: CAT_BOUNDARY | CAT_DETACHED,
                     groupIndex: 0,
                 });
-                if (timeSinceMove < 50) {
-                    this.body.setLinearVelocity(Vec2(
-                        trackedLinearVel.x * 0.3,
-                        trackedLinearVel.y * 0.3
-                    ));
+                if (timeSinceMove < 150) {
+                    const linVel = getLinearVelocity(now);
+                    this.body.setLinearVelocity(linVel);
                 }
                 e.preventDefault();
                 return;

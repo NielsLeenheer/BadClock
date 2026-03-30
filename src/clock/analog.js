@@ -6,6 +6,7 @@ import { Crown } from './crown.js';
 const DEG = Math.PI / 180;
 const WORLD_RADIUS = 5;
 const TIME_STEP = 1 / 60;
+const MAX_STEPS_PER_FRAME = 4;
 const GRAVITY = 15;
 
 export class AnalogClock {
@@ -15,6 +16,8 @@ export class AnalogClock {
         this._orientation = 0;
         this._driftAccumulator = 0;
         this._cachedClockRadius = 0;
+        this._lastUpdateTime = 0;
+        this._physicsAccumulator = 0;
 
         // Time model — physical space, no gravity
         this.timeWorld = World(Vec2(0, 0));
@@ -335,11 +338,24 @@ export class AnalogClock {
             }
         }
 
-        // Step time world always; gravity world only when needed
-        this.timeWorld.step(TIME_STEP);
+        // Fixed-timestep accumulator — run enough steps to match real elapsed time
+        const frameNow = performance.now();
+        let dt = this._lastUpdateTime ? (frameNow - this._lastUpdateTime) / 1000 : TIME_STEP;
+        this._lastUpdateTime = frameNow;
+
+        // Clamp dt to avoid spiral of death after tab-switch or long pause
+        if (dt > MAX_STEPS_PER_FRAME * TIME_STEP) {
+            dt = MAX_STEPS_PER_FRAME * TIME_STEP;
+        }
+        this._physicsAccumulator += dt;
+
         const anyGravity = this.hands.some(h => h.isInGravityModel);
-        if (anyGravity) {
-            this.gravityWorld.step(TIME_STEP);
+        while (this._physicsAccumulator >= TIME_STEP) {
+            this.timeWorld.step(TIME_STEP);
+            if (anyGravity) {
+                this.gravityWorld.step(TIME_STEP);
+            }
+            this._physicsAccumulator -= TIME_STEP;
         }
 
         // Render all hands (skip when not visible)
