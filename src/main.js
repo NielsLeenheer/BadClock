@@ -20,9 +20,7 @@ window.addEventListener('load', () => {
     const clockEl = document.getElementById('clock');
 
     // Clock — owns faces, modes, rotation, shake detection
-    const clock = new Clock(clockEl, {
-        perfMultiplier: isLocalhost ? 3.0 : 1.0,
-    });
+    const clock = new Clock(clockEl);
 
     // Debug panel
     const debug = new DebugPanel();

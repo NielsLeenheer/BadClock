@@ -10,14 +10,14 @@ import { RotationController } from './rotation-controller.js';
 import { ShakeDetector } from './shake-detector.js';
 
 export class Clock {
-    constructor(el, { perfMultiplier = 1.0 } = {}) {
+    constructor(el) {
         this.el = el;
         this.time = { value: 0 };
 
         // Clock faces
         const analogEl = el.querySelector('#analog');
         const digitalEl = el.querySelector('#digital');
-        this.analogClock = new AnalogClock(analogEl, this.time, perfMultiplier);
+        this.analogClock = new AnalogClock(analogEl, this.time);
         this.digitalClock = new DigitalClock(digitalEl, this.time);
 
         // Mode switching

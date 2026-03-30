@@ -10,7 +10,7 @@ const MAX_STEPS_PER_FRAME = 4;
 const GRAVITY = 15;
 
 export class AnalogClock {
-    constructor(element, time, perfMultiplier = 1.0) {
+    constructor(element, time) {
         this.element = element;
         this.time = time;
         this._orientation = 0;
