@@ -33,7 +33,7 @@ export class Clock {
         // Shake detection
         this.shakeDetector = new ShakeDetector();
         this.shakeDetector.onShake = () => {
-            if (!this.manualMode && !this.isShaking && this.currentMode === 'analog') {
+            if (!this.manualMode && this.analogClock.hasShakeableHands && this.currentMode === 'analog') {
                 this.analogClock.enterShakeMode();
                 this.onShakeModeChanged?.();
             }
@@ -131,7 +131,7 @@ export class Clock {
     handleOrientation(data) {
         const { x, y, z } = data;
 
-        if (!this.isShaking && this.currentMode === 'analog') {
+        if (this.analogClock.hasShakeableHands && this.currentMode === 'analog') {
             this.shakeDetector.feed(z, 0.3);
         }
 
@@ -141,7 +141,7 @@ export class Clock {
     }
 
     handleRawAccel(data) {
-        if (!this.isShaking && this.currentMode === 'analog') {
+        if (this.analogClock.hasShakeableHands && this.currentMode === 'analog') {
             this.shakeDetector.feed(data.z, 2.0);
         }
     }

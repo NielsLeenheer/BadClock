@@ -158,6 +158,10 @@ export class AnalogClock {
         return this.hands.some(h => h.isInGravityModel);
     }
 
+    get hasShakeableHands() {
+        return this.hands.some(h => h.isInTimeModel);
+    }
+
     /* ---- Time ---- */
 
     setCurrentTime() {
