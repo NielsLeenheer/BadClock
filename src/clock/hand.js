@@ -672,8 +672,20 @@ export class Hand {
                 return;
             }
 
-            // Normal release in time model — coast
+            // Normal release in time model — coast or drop into gravity
             this._manuallySet = true;
+
+            // Chance to enter gravity mode (attached) on a moderate flick
+            if (Math.abs(releaseVel) > 200 && Math.random() < 1 / 20) {
+                // Switch to gravity model but keep pivot joint — hand swings under gravity
+                this._switchToGravityModel('gravity');
+                this._createPivotJoint();
+                this.body.setAngularVelocity(-releaseVel * DEG);
+                if (this.onDragInGravityMode) this.onDragInGravityMode();
+                e.preventDefault();
+                return;
+            }
+
             this._startCoasting(releaseVel);
 
             e.preventDefault();
