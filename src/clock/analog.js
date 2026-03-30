@@ -84,33 +84,176 @@ export class AnalogClock {
         // Crown
         this.crown = new Crown(element);
         this.crown.onOverwind = () => {
-            let delay = 0;
-            for (const hand of this.hands) {
-                if (hand.isInTimeModel) {
-                    // Clock/coasting hands: detach and fling with staggered delay
-                    const h = hand;
-                    setTimeout(() => {
-                        h.detach();
-                        h.body.setLinearVelocity(Vec2(
-                            (Math.random() - 0.5) * 20,
-                            (Math.random() - 0.5) * 20
-                        ));
-                        h.body.setAngularVelocity((Math.random() - 0.5) * 20);
-                        this._updateShakeClass();
-                    }, delay);
-                    delay += 10 + Math.random() * 40;
-                } else if (hand._mode === 'gravity') {
-                    // Swinging hand: detach from pivot with a small push so it
-                    // clears the reattach zone before the next frame
-                    hand.detach();
-                    hand.body.setLinearVelocity(Vec2(
-                        (Math.random() - 0.5) * 4,
-                        3 + Math.random() * 3
-                    ));
+            this._grinding = true;
+            const hourHand = this.hands[0];   // index 0 = hour hand
+            const secondHand = this.hands[2]; // index 2 = second hand
+
+            // Freeze each hand's current angle and assign random vibration params
+            const initGrindParams = () => {
+                for (const hand of this.hands) {
+                    if (hand.isInTimeModel) {
+                        hand._grindBaseAngle = hand.body.getAngle();
+                        hand._grindAmplitude = (10 + Math.random() * 10) * DEG;
+                        hand._grindFrequency = 8 + Math.random() * 12;
+                        hand._grindPhase = Math.random() * Math.PI * 2;
+                        hand._grindNoise1 = 3 + Math.random() * 7;
+                        hand._grindNoise2 = 17 + Math.random() * 23;
+                    }
                 }
-                // Already detached: do nothing
-            }
-            this._updateShakeClass();
+            };
+
+            const applyVibration = (elapsed, duration, skipHand = null) => {
+                const t = elapsed * 0.001;
+                for (const hand of this.hands) {
+                    if (hand === skipHand) continue;
+                    if (hand.isInTimeModel && hand._grindBaseAngle !== undefined) {
+                        const intensity = 0.3 + 0.7 * (elapsed / duration);
+                        // Main oscillation + two noise layers for erratic feel
+                        const main = Math.sin(t * hand._grindFrequency * Math.PI * 2 + hand._grindPhase);
+                        const noise1 = Math.sin(t * hand._grindNoise1 * Math.PI * 2) * 0.5;
+                        const noise2 = Math.sin(t * hand._grindNoise2 * Math.PI * 2) * 0.3;
+                        const combined = Math.max(-1, Math.min(1, main + noise1 * noise2));
+                        const offset = combined * hand._grindAmplitude * intensity;
+                        hand.body.setTransform(Vec2(0, 0), hand._grindBaseAngle + offset);
+                        hand.body.setAngularVelocity(0);
+                    }
+                }
+            };
+
+            const cleanupGrindParams = () => {
+                for (const hand of this.hands) {
+                    if (hand._grindBaseAngle !== undefined) {
+                        hand.body.setTransform(Vec2(0, 0), hand._grindBaseAngle);
+                        hand.body.setAngularVelocity(0);
+                        delete hand._grindBaseAngle;
+                        delete hand._grindAmplitude;
+                        delete hand._grindFrequency;
+                        delete hand._grindPhase;
+                        delete hand._grindNoise1;
+                        delete hand._grindNoise2;
+                    }
+                }
+            };
+
+            const ejectHands = () => {
+                this._grinding = false;
+                let delay = 0;
+                for (const hand of this.hands) {
+                    if (hand.isInTimeModel) {
+                        const h = hand;
+                        setTimeout(() => {
+                            h.detach();
+                            h.body.setLinearVelocity(Vec2(
+                                (Math.random() - 0.5) * 20,
+                                (Math.random() - 0.5) * 20
+                            ));
+                            h.body.setAngularVelocity((Math.random() - 0.5) * 20);
+                            this._updateShakeClass();
+                        }, delay);
+                        delay += 10 + Math.random() * 40;
+                    } else if (hand._mode === 'gravity') {
+                        hand.detach();
+                        hand.body.setLinearVelocity(Vec2(
+                            (Math.random() - 0.5) * 4,
+                            3 + Math.random() * 3
+                        ));
+                    }
+                }
+                this._updateShakeClass();
+            };
+
+            // Phase 1: Initial grinding (1s)
+            initGrindParams();
+            const phase1Start = performance.now();
+            const phase1Duration = 1000;
+
+            const phase1Frame = () => {
+                const elapsed = performance.now() - phase1Start;
+                if (elapsed >= phase1Duration || !this._grinding) {
+                    cleanupGrindParams();
+                    startSlip();
+                    return;
+                }
+                applyVibration(elapsed, phase1Duration, hourHand);
+                requestAnimationFrame(phase1Frame);
+            };
+
+            // Phase 2: Second hand slips forward through gears
+            const startSlip = () => {
+                if (!secondHand.isInTimeModel) { startPhase3(); return; }
+
+                const slipStart = performance.now();
+                const slipDuration = 400;
+                const slipAmount = -(30 + Math.random() * 60) * DEG; // slip 30–90° forward
+                const slipBaseAngle = secondHand.body.getAngle();
+
+                const slipFrame = () => {
+                    const elapsed = performance.now() - slipStart;
+                    if (elapsed >= slipDuration || !this._grinding) {
+                        secondHand.body.setTransform(Vec2(0, 0), slipBaseAngle + slipAmount);
+                        secondHand.body.setAngularVelocity(0);
+                        startPhase3();
+                        return;
+                    }
+                    // Ease-out slip
+                    const t = elapsed / slipDuration;
+                    const eased = 1 - (1 - t) * (1 - t);
+                    secondHand.body.setTransform(Vec2(0, 0), slipBaseAngle + slipAmount * eased);
+                    secondHand.body.setAngularVelocity(0);
+
+                    // Other hands: small tremor during slip
+                    const tremT = elapsed * 0.001;
+                    for (const hand of this.hands) {
+                        if (hand !== secondHand && hand.isInTimeModel) {
+                            const freq = hand === hourHand ? 6 : 35;
+                            const amp = hand === hourHand ? 3 : 1.5;
+                            const tremor = Math.sin(tremT * freq * Math.PI * 2) * amp * DEG;
+                            const baseAngle = hand._grindBaseAngle ?? hand.body.getAngle();
+                            hand.body.setTransform(Vec2(0, 0), baseAngle + tremor);
+                            hand.body.setAngularVelocity(0);
+                        }
+                    }
+                    requestAnimationFrame(slipFrame);
+                };
+
+                requestAnimationFrame(slipFrame);
+            };
+
+            // Phase 3: Final grinding — more violent (1.2s), then eject
+            const startPhase3 = () => {
+                initGrindParams();
+                // Increase amplitude for final grind
+                for (const hand of this.hands) {
+                    if (hand._grindAmplitude !== undefined) {
+                        if (hand === hourHand) {
+                            // Match phase 2 hour hand: slow and heavy
+                            hand._grindFrequency = 6;
+                            hand._grindAmplitude = 3 * DEG * 1.5;
+                        } else {
+                            hand._grindAmplitude *= 1.5;
+                            hand._grindFrequency *= 1.3;
+                        }
+                    }
+                }
+
+                const phase3Start = performance.now();
+                const phase3Duration = 1200;
+
+                const phase3Frame = () => {
+                    const elapsed = performance.now() - phase3Start;
+                    if (elapsed >= phase3Duration || !this._grinding) {
+                        cleanupGrindParams();
+                        ejectHands();
+                        return;
+                    }
+                    applyVibration(elapsed, phase3Duration);
+                    requestAnimationFrame(phase3Frame);
+                };
+
+                requestAnimationFrame(phase3Frame);
+            };
+
+            requestAnimationFrame(phase1Frame);
         };
 
         // Hour tick marks
