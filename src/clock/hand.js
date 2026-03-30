@@ -5,6 +5,7 @@ const DEG = Math.PI / 180;
 const CAT_ATTACHED = 0x0001;
 const CAT_DETACHED = 0x0002;
 const CAT_BOUNDARY = 0x0004;
+const WORLD_RADIUS = 5;
 
 export class Hand {
     /**
@@ -458,7 +459,7 @@ export class Hand {
             trackedVelocity = 0;
 
             // 1-in-50 chance the hand detaches when picked up from time model
-            if (this.isInTimeModel && (Hand.forceDetachOnDrag || Math.random() < 1 / 50)) {
+            if (this.isInTimeModel && (Hand.forceDetachOnDrag || Math.random() < 1 / 10)) {
                 // Destroy joint before switching
                 if (this.joint) {
                     this.worlds.time.destroyJoint(this.joint);
@@ -506,6 +507,16 @@ export class Hand {
                     worldPos.x + dragPosOffset.x,
                     worldPos.y + dragPosOffset.y
                 );
+
+                // Clamp position inside the boundary circle
+                const dist = Math.sqrt(newPos.x * newPos.x + newPos.y * newPos.y);
+                const maxR = WORLD_RADIUS - 0.3;
+                if (dist > maxR) {
+                    const s = maxR / dist;
+                    newPos.x *= s;
+                    newPos.y *= s;
+                }
+
                 this.body.setTransform(newPos, this.body.getAngle());
                 this.body.setLinearVelocity(Vec2(0, 0));
                 this.body.setAngularVelocity(0);
