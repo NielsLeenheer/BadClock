@@ -281,9 +281,12 @@ export class DigitalClock {
         const now = Date.now();
 
         for (const [name, poly] of Object.entries(d.segments)) {
-            const on = d.segOn[name];
+            let on = d.segOn[name];
             const ss = d.segState[name];
             const group = d.segGroups[name];
+
+            // Broken segments look the same as off
+            if (ss.broken) on = false;
 
             // Compute target opacity
             const opacity = on ? this.getSegmentOpacity(ss, now) : null;
