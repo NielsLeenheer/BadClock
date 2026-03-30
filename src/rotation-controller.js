@@ -1,13 +1,12 @@
 /**
- * Manages display rotation with a dead zone and snap-to-90°.
+ * Manages device rotation with a dead zone and snap-to-90°.
  *
  * - Ignores small angle changes (dead zone) to prevent jitter
  * - When the sensor is still for a while, snaps to nearest 90° angle
- * - Applies CSS transform with appropriate transition speed
+ * - Does NOT apply CSS — consumers read `rotation` and apply it themselves
  */
 export class RotationController {
-    constructor(element, { deadZone = 8, snapDistance = 12, snapDelay = 800 } = {}) {
-        this.element = element;
+    constructor({ deadZone = 8, snapDistance = 12, snapDelay = 800 } = {}) {
         this.rotation = 0;
         this.committedRotation = 0;
         this.lastChangeTime = 0;
@@ -16,8 +15,7 @@ export class RotationController {
         this.SNAP_DISTANCE = snapDistance;
         this.SNAP_DELAY = snapDelay;
 
-        // Callback when rotation actually changes
-        this.onChange = null; // (rotationChange: number) => void
+        this.onChange = null;
     }
 
     /** Feed a new sensor angle. Returns true if rotation changed. */
@@ -32,10 +30,7 @@ export class RotationController {
         this.rotation = newAngle;
         this.lastChangeTime = Date.now();
 
-        this.element.style.transition = 'transform 0.15s ease-out';
-        this.element.style.transform = `rotate(${this.rotation}deg)`;
-
-        if (this.onChange) this.onChange(diff);
+        if (this.onChange) this.onChange();
         return true;
     }
 
@@ -52,8 +47,6 @@ export class RotationController {
         if (Math.abs(diff) > 0.5 && Math.abs(diff) <= this.SNAP_DISTANCE) {
             this.committedRotation = nearest90;
             this.rotation = nearest90;
-            this.element.style.transition = 'transform 0.4s ease-in-out';
-            this.element.style.transform = `rotate(${nearest90}deg)`;
         }
     }
 
@@ -61,6 +54,5 @@ export class RotationController {
     set(angle) {
         this.rotation = angle;
         this.committedRotation = angle;
-        this.element.style.transform = `rotate(${angle}deg)`;
     }
 }

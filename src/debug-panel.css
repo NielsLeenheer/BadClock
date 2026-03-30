@@ -24,11 +24,15 @@
     background: rgba(0, 0, 0, 0.7);
     padding: 8px 12px;
     border-radius: 5px;
-    display: flex;
+    display: none;
     align-items: center;
     gap: 8px;
     cursor: pointer;
     user-select: none;
+}
+
+body.devmode #debug-toggle {
+    display: flex;
 }
 
 #debug-toggle input[type="checkbox"] {
@@ -93,19 +97,18 @@
 }
 
 #manual-controls.visible {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 #manual-controls:hover {
     opacity: 1;
 }
 
-#manual-controls.active {
-    opacity: 1;
-    border: 2px solid #e74c3c;
-}
 
-.angle-buttons {
+.angle-buttons,
+.button-row {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 6px;
@@ -121,7 +124,6 @@
     text-transform: uppercase;
     font-family: monospace;
     transition: all 0.2s;
-    margin-top: 6px;
 }
 
 .control-btn:hover {
@@ -146,3 +148,12 @@
 .control-btn--green  { background: rgba(46, 204, 113, 0.3);  border: 1px solid #2ecc71; }
 .control-btn--purple { background: rgba(155, 89, 182, 0.3);  border: 1px solid #9b59b6; }
 .control-btn--orange { background: rgba(230, 126, 34, 0.3);  border: 1px solid #e67e22; }
+.control-btn--red    { background: rgba(231, 76, 60, 0.3);   border: 1px solid #e74c3c; }
+
+.debug-checkbox-label {
+    color: #ecf0f1;
+    font-size: 12px;
+    font-family: monospace;
+    margin-top: 2px;
+    cursor: pointer;
+}

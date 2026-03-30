@@ -6,26 +6,16 @@
     <title>Bad Clock</title>
 </head>
 <body>
-    <!-- Shared SVG filter for segment glow -->
-    <svg style="position:absolute;width:0;height:0;pointer-events:none">
-        <defs>
-            <filter id="segment-glow" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-                <feMerge>
-                    <feMergeNode in="blur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-            </filter>
-        </defs>
-    </svg>
-
     <div id="clock">
         <div id="analog">
-            <div id="horizon-line"></div>
-            <div id="hour-hand" class="hand"></div>
-            <div id="minute-hand" class="hand"></div>
-            <div id="second-hand" class="hand"></div>
-            <div class="center-dot"></div>
+            <div id="analog-face">
+                <div id="horizon-line"></div>
+                <div id="hour-hand" class="hand"></div>
+                <div id="minute-hand" class="hand"></div>
+                <div id="second-hand" class="hand"></div>
+                <div class="center-dot"></div>
+            </div>
+            <div id="crown"></div>
         </div>
         <div id="digital"></div>
     </div>
@@ -44,7 +34,8 @@
         <div id="orientation-info">
             Orientation: 0°<br>
             Accel: x:0 y:0 z:0<br>
-            Time offset: +0m
+            Time offset: +0m<br>
+            Energy: 100%
         </div>
     </div>
 
@@ -56,9 +47,19 @@
             <button class="control-btn control-btn--blue angle-btn" data-angle="180">180°</button>
             <button class="control-btn control-btn--blue angle-btn" data-angle="270">270°</button>
         </div>
-        <button class="control-btn control-btn--green auto-btn">AUTO</button>
-        <button class="control-btn control-btn--purple random-btn">RANDOM</button>
-        <button class="control-btn control-btn--orange shake-btn">SHAKE</button>
+        <div class="button-row">
+            <button class="control-btn control-btn--green auto-btn">AUTO</button>
+            <button class="control-btn control-btn--purple random-btn">RANDOM</button>
+        </div>
+        <div class="button-row">
+            <button class="control-btn control-btn--orange shake-btn">SHAKE</button>
+            <button class="control-btn control-btn--red overwind-btn">OVERWIND</button>
+            <button class="control-btn control-btn--purple dst-btn">DST</button>
+        </div>
+        <label class="debug-checkbox-label">
+            <input type="checkbox" id="detach-on-drag-checkbox">
+            Detach hands on drag
+        </label>
     </div>
 
     <script type="module" src="/src/main.js"></script>

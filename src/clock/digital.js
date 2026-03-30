@@ -37,9 +37,13 @@ for (const [digit, segs] of Object.entries(DIGIT_MAP)) {
 }
 
 // Decay config
-const DECAY_DURATION = 20 * 60 * 1000; // 20 minutes from full to minimum
-const DECAY_MIN = 0.15;                // minimum opacity (never fully off)
-const FLICKER_CHANCE = 0.00002;         // per segment per frame (~1 in 50000)
+const DECAY_DURATION = 2 * 60 * 60 * 1000; // 2 hours from full to minimum
+const DECAY_MIN = 0.50;                // minimum opacity (never fully off)
+const FLICKER_CHANCE = 0.000001;        // per segment per frame (~1 in 1000000)
+const FLICKER_MAX = 1;                  // max segments flickering at once
+const FLICKER_HEAL_CHANCE = 0.0001;     // chance per frame to self-cure (~2.5min avg)
+const FLICKER_BREAK_CHANCE = 0.00001;   // chance per frame flickering → broken
+const BROKEN_MAX = 1;                   // max segments broken at once
 
 export class DigitalClock {
     /**
@@ -83,21 +87,45 @@ export class DigitalClock {
         svg.classList.add('digit-svg');
 
         const segments = {};
+        const segGroups = {};
         const segState = {};
 
         for (const [name, pts] of Object.entries(SEG_PTS)) {
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            group.classList.add('seg-group', 'off');
+
+            // Outer glow — broad dim stroke
+            const glowOuter = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            glowOuter.setAttribute('points', pts);
+            glowOuter.classList.add('segment-glow-outer');
+            glowOuter.style.pointerEvents = 'none';
+            group.appendChild(glowOuter);
+
+            // Inner glow — thin bright stroke
+            const glowInner = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            glowInner.setAttribute('points', pts);
+            glowInner.classList.add('segment-glow-inner');
+            glowInner.style.pointerEvents = 'none';
+            group.appendChild(glowInner);
+
             const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
             poly.setAttribute('points', pts);
-            poly.classList.add('segment', 'off');
+            poly.classList.add('segment');
             poly.dataset.seg = name;
             poly.dataset.digit = index;
             poly.style.pointerEvents = 'none';
+            group.appendChild(poly);
 
-            svg.appendChild(poly);
+            svg.appendChild(group);
             segments[name] = poly;
+            segGroups[name] = group;
             segState[name] = {
                 litSince: null,    // timestamp when this segment was last turned on
                 flickering: false, // in broken-flicker state
+                flickerSpeed: null, // 'slow' or 'fast'
+                broken: false,     // segment burned out (visually off)
+                renderedOn: false, // last rendered on/off state
+                renderedOpacity: null, // last rendered opacity value
             };
         }
 
@@ -131,6 +159,7 @@ export class DigitalClock {
             el: wrap,
             svg,
             segments,
+            segGroups,
             segState,
             state: 'normal',
             segOn: { a: false, b: false, c: false, d: false, e: false, f: false, g: false },
@@ -158,10 +187,12 @@ export class DigitalClock {
         // Toggle the segment
         d.segOn[segName] = !d.segOn[segName];
 
-        // Touch resets decay and clears flicker
+        // Touch resets decay and clears flicker/broken
         const ss = d.segState[segName];
         ss.litSince = d.segOn[segName] ? Date.now() : null;
         ss.flickering = false;
+        ss.flickerSpeed = null;
+        ss.broken = false;
 
         this.renderDigit(di);
 
@@ -252,23 +283,51 @@ export class DigitalClock {
         for (const [name, poly] of Object.entries(d.segments)) {
             const on = d.segOn[name];
             const ss = d.segState[name];
+            const group = d.segGroups[name];
 
-            poly.classList.toggle('on', on);
-            poly.classList.toggle('off', !on);
+            // Compute target opacity
+            const opacity = on ? this.getSegmentOpacity(ss, now) : null;
+            // Quantize to 2 decimal places to avoid sub-pixel churn
+            const qOpacity = opacity !== null ? Math.round(opacity * 100) / 100 : null;
 
-            if (on) {
-                const opacity = this.getSegmentOpacity(ss, now);
-                poly.style.opacity = opacity;
-            } else {
-                poly.style.opacity = '';
+            // Skip DOM writes if nothing changed
+            if (on === ss.renderedOn && qOpacity === ss.renderedOpacity) continue;
+
+            if (on !== ss.renderedOn) {
+                group.classList.toggle('on', on);
+                group.classList.toggle('off', !on);
+                ss.renderedOn = on;
+            }
+
+            if (qOpacity !== ss.renderedOpacity) {
+                group.style.opacity = qOpacity !== null ? qOpacity : '';
+                ss.renderedOpacity = qOpacity;
             }
         }
     }
 
     getSegmentOpacity(ss, now) {
-        // Flickering overrides decay
+        // Broken — visually off
+        if (ss.broken) return 0.0;
+
+        // Flickering — erratic, like a loose connection
         if (ss.flickering) {
-            return Math.random() > 0.5 ? 1.0 : 0.1;
+            const t = now * 0.001;
+            if (ss.flickerSpeed === 'slow') {
+                // Slow flicker — slow on/off cycle with fast flicker at the threshold
+                const slow = Math.sin(t * 1.7);
+                const fast = Math.sin(t * 47.3) * Math.sin(t * 31.1);
+                if (slow > 0.15) return 1.0;
+                if (slow < -0.15) return 0.5;
+                // Near threshold — fast flicker between on and dim
+                return fast > 0 ? 1.0 : 0.5;
+            } else {
+                // Fast flicker — erratic spikes and blackouts
+                const noise = Math.sin(t * 73.1) * Math.sin(t * 191.7) * Math.sin(t * 37.3);
+                if (noise > 0.3) return 1.0;
+                if (noise < -0.5) return 0.0;
+                return 0.3 + Math.random() * 0.4;
+            }
         }
 
         // Decay: linear from 1.0 to DECAY_MIN over DECAY_DURATION
@@ -297,19 +356,37 @@ export class DigitalClock {
             const ss = d.segState[s];
 
             if (isOn && !wasOn) {
-                // Segment just turned on — reset decay and flicker
+                // Segment just turned on — reset decay, flicker, broken
                 ss.litSince = now;
                 ss.flickering = false;
+                ss.flickerSpeed = null;
+                ss.broken = false;
                 changed = true;
             } else if (!isOn && wasOn) {
-                // Segment turned off — reset
+                // Segment turned off — reset everything
                 ss.litSince = null;
                 ss.flickering = false;
+                ss.flickerSpeed = null;
+                ss.broken = false;
                 changed = true;
             } else if (isOn) {
-                // Segment staying on — maybe start flickering
-                if (!ss.flickering && Math.random() < FLICKER_CHANCE) {
+                if (ss.broken) {
+                    // Broken stays broken until turned off
+                } else if (ss.flickering) {
+                    // Flickering → might break
+                    if (this._brokenCount() < BROKEN_MAX && Math.random() < FLICKER_BREAK_CHANCE) {
+                        ss.flickering = false;
+                        ss.flickerSpeed = null;
+                        ss.broken = true;
+                    // Flickering → might self-cure
+                    } else if (Math.random() < FLICKER_HEAL_CHANCE) {
+                        ss.flickering = false;
+                        ss.flickerSpeed = null;
+                    }
+                // Position multiplier: digit 0 (left) = 1x, digit 3 (right) = 4x
+                } else if (this._flickerCount() < FLICKER_MAX && Math.random() < FLICKER_CHANCE * (di + 1)) {
                     ss.flickering = true;
+                    ss.flickerSpeed = Math.random() < 0.5 ? 'slow' : 'fast';
                 }
             }
         }
@@ -319,7 +396,75 @@ export class DigitalClock {
         }
     }
 
+    _flickerCount() {
+        let count = 0;
+        for (const d of this.digits) {
+            for (const s of 'abcdefg') {
+                if (d.segState[s].flickering) count++;
+            }
+        }
+        return count;
+    }
+
+    _brokenCount() {
+        let count = 0;
+        for (const d of this.digits) {
+            for (const s of 'abcdefg') {
+                if (d.segState[s].broken) count++;
+            }
+        }
+        return count;
+    }
+
+    /* ---- Debug helpers ---- */
+
+    /** Force a random lit segment into flicker mode (respects max cap). */
+    debugFlicker() {
+        if (this._flickerCount() >= FLICKER_MAX) return;
+        const candidates = [];
+        for (const d of this.digits) {
+            if (d.state !== 'normal') continue;
+            for (const s of 'abcdefg') {
+                if (d.segOn[s] && !d.segState[s].flickering) {
+                    candidates.push(d.segState[s]);
+                }
+            }
+        }
+        if (candidates.length === 0) return;
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        pick.flickering = true;
+        pick.flickerSpeed = Math.random() < 0.5 ? 'slow' : 'fast';
+    }
+
+    /** Age all lit segments by a given number of minutes. */
+    debugDecay(minutes = 5) {
+        const ms = minutes * 60 * 1000;
+        for (const d of this.digits) {
+            for (const s of 'abcdefg') {
+                const ss = d.segState[s];
+                if (ss.litSince !== null) {
+                    ss.litSince -= ms;
+                }
+            }
+        }
+    }
+
     /* ---- Called every frame ---- */
+
+    _hasActiveEffects() {
+        for (const d of this.digits) {
+            for (const s of 'abcdefg') {
+                const ss = d.segState[s];
+                if (ss.flickering || ss.broken) return true;
+                // Segment still decaying (not yet at minimum)
+                if (ss.litSince !== null) {
+                    const elapsed = Date.now() - ss.litSince;
+                    if (elapsed < DECAY_DURATION) return true;
+                }
+            }
+        }
+        return false;
+    }
 
     update() {
         const now = new Date(Date.now() + this.time.value);
@@ -334,9 +479,11 @@ export class DigitalClock {
             this.setDigitValue(i, vals[i]);
         }
 
-        // Re-render every frame to update decay opacity and flicker
-        for (let i = 0; i < 4; i++) {
-            this.renderDigit(i);
+        // Only re-render every frame if there are active visual effects
+        if (this._hasActiveEffects()) {
+            for (let i = 0; i < 4; i++) {
+                this.renderDigit(i);
+            }
         }
     }
 }

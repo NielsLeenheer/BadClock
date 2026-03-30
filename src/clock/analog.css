@@ -4,31 +4,68 @@
     left: 0;
     width: 100%;
     height: 100%;
-    transition: transform 0.35s ease-in-out;
-    border-radius: 50%;
-    background: #111111;
-    box-shadow:
-        0 0 60px rgba(0, 0, 0, 0.8),
-        inset 0 0 40px rgba(0, 0, 0, 0.5);
-    transition: box-shadow 0.3s;
+    overflow: hidden;
 }
 
-body.localhost #analog {
-    background: transparent;
-    box-shadow: none;
+#analog-face {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: #000;
+    /* box-shadow:
+        0 0 60px rgba(0, 0, 0, 0.8),
+        inset 0 0 40px rgba(0, 0, 0, 0.5); */
 }
+
+body.localhost #analog-face {
+    /* background: transparent; */
+    /* box-shadow: none; */
+}
+
+/* Ticks and debug indicators: hidden by default, shown in debug mode */
+.clock-tick,
+.debug-overlay {
+    display: none;
+}
+
+body.debug-mode .clock-tick,
+body.debug-mode .debug-overlay {
+    display: block;
+}
+
+/* ---- Crown (winding mechanism) ---- */
+
+#crown {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%) translateX(100%);
+    width: 14px;
+    height: 16%;
+    background: repeating-linear-gradient(
+        to bottom,
+        #888 0px,
+        #888 3px,
+        #7a7a7a 3px,
+        #7a7a7a 6px
+    );
+    border-radius: 10px;
+    transition: transform 0.3s ease-in-out, background-position 0.2s ease-out;
+    background-position: 0 0;
+    z-index: 20;
+}
+
+#crown.revealed {
+    transform: translateY(-50%) translateX(-140%);
+}
+
+/* ---- Hands ---- */
 
 .center-dot {
-    position: absolute;
-    width: 30px;
-    height: 30px;
-    background: #e74c3c;
-    border-radius: 50%;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 20px rgba(231, 76, 60, 0.8);
-    z-index: 10;
+    display: none;
 }
 
 .hand {
@@ -39,6 +76,19 @@ body.localhost #analog {
     cursor: grab;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
     transition: none;
+    will-change: transform;
+}
+
+.hand::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    transform: translateX(-50%);
+    border-radius: 50%;
+    background: #ecf0f1;
 }
 
 .hand::before {
@@ -84,6 +134,13 @@ body.localhost #analog {
     transform: translateX(-50%);
     background: #e74c3c;
     z-index: 3;
+}
+
+#second-hand::after {
+    background: #e74c3c;
+    width: 30px;
+    height: 30px;
+    bottom: -15px;
 }
 
 #horizon-line {

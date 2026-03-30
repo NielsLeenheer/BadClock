@@ -9,6 +9,7 @@
     align-items: center;
     transition: transform 0.35s ease-in-out;
     z-index: 1;
+    background: #000;
 }
 
 .digital-digits {
@@ -31,18 +32,15 @@
     overflow: visible;
 }
 
+.seg-group.off .segment { fill: #1a1a1a; }
+.seg-group.off .segment-glow-outer { fill: transparent; stroke: transparent; }
+.seg-group.off .segment-glow-inner { fill: transparent; stroke: transparent; }
+.seg-group.on .segment { fill: #ff1a1a; }
+.seg-group.on .segment-glow-outer { fill: transparent; stroke: #3a0808; stroke-width: 3px; }
+.seg-group.on .segment-glow-inner { fill: transparent; stroke: #801010; stroke-width: 1.5px; }
+
 .segment {
     cursor: pointer;
-    transition: fill 0.12s;
-}
-
-.segment.on {
-    fill: #ff1a1a;
-    filter: url(#segment-glow);
-}
-
-.segment.off {
-    fill: #1a1a1a;
 }
 
 .digital-colon {
@@ -59,7 +57,7 @@
     height: 3.5vmin;
     background: #ff1a1a;
     border-radius: 50%;
-    box-shadow: 0 0 8px rgba(255, 26, 26, 0.8), 0 0 18px rgba(255, 26, 26, 0.4);
+    box-shadow: 0 0 8px rgba(255, 26, 26, 0.6);
     animation: colon-blink 1s step-end infinite;
 }
 

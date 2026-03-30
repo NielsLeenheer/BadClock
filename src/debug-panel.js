@@ -48,10 +48,27 @@ export class DebugPanel {
             this.updateHorizonLine();
         });
 
+        document.querySelector('.overwind-btn').addEventListener('click', () => {
+            clock.debug.overwind();
+        });
+
+        document.querySelector('.dst-btn').addEventListener('click', () => {
+            clock.simulateDST();
+        });
+
+        document.getElementById('detach-on-drag-checkbox').addEventListener('change', (e) => {
+            clock.debug.setForceDetachOnDrag(e.target.checked);
+        });
+
         // Clock events → debug UI
         clock.onShakeModeChanged = () => this.updateHorizonLine();
         clock.onManualModeChanged = (active) => {
-            this.manualControls.classList.toggle('active', active);
+
+        };
+        clock.onDSTTriggered = (behavior, offsetMin) => {
+            this._lastDstMsg = `DST ${offsetMin > 0 ? 'back' : 'fwd'}: ${behavior}`;
+            // Clear after 5 seconds
+            setTimeout(() => { this._lastDstMsg = null; }, 5000);
         };
 
         // Start render loop
@@ -94,20 +111,26 @@ export class DebugPanel {
             modeIndicator = ' (manual)';
         }
 
+        const energy = clock.crownEnergy;
+        const energyPct = Math.round(energy * 100);
+
+        const dstLine = this._lastDstMsg ? `<br><span style="color: #f39c12;">${this._lastDstMsg}</span>` : '';
+
         const accel = this.lastAccelData;
         if (accel) {
             this.orientationInfo.innerHTML = `
                 Orientation: ${clock.displayRotation}°${modeIndicator}<br>
                 Accel: x:${accel.x.toFixed(2)} y:${accel.y.toFixed(2)} z:${accel.z.toFixed(2)}<br>
-                Time offset: ${offsetSign}${offsetMinutes}m
+                Time offset: ${offsetSign}${offsetMinutes}m<br>
+                Energy: ${energyPct}%${dstLine}
             `;
         } else {
-            const lines = this.orientationInfo.innerHTML.split('<br>');
-            if (lines.length >= 3) {
-                lines[0] = `Orientation: ${Math.round(clock.displayRotation)}°${modeIndicator}`;
-                lines[2] = `Time offset: ${offsetSign}${offsetMinutes}m`;
-                this.orientationInfo.innerHTML = lines.join('<br>');
-            }
+            this.orientationInfo.innerHTML = `
+                Orientation: ${Math.round(clock.displayRotation)}°${modeIndicator}<br>
+                Accel: –<br>
+                Time offset: ${offsetSign}${offsetMinutes}m<br>
+                Energy: ${energyPct}%${dstLine}
+            `;
         }
     }
 
@@ -121,6 +144,7 @@ export class DebugPanel {
     setupDebugToggle() {
         this.debugCheckbox.addEventListener('change', () => {
             this.enabled = this.debugCheckbox.checked;
+            document.body.classList.toggle('debug-mode', this.enabled);
             this.debugElement.classList.toggle('visible', this.enabled);
             this.manualControls.classList.toggle('visible', this.enabled);
             this.updateHorizonLine();

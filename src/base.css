@@ -10,7 +10,7 @@ body {
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    background: #000;
+    background: #111;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -23,6 +23,8 @@ body {
     height: min(90vmin, 1000px);
     overflow: hidden;
     border-radius: 50%;
+    will-change: transform;
+    contain: layout style;
 }
 
 body.localhost #clock {
