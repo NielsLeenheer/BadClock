@@ -5,6 +5,7 @@ const DEG = Math.PI / 180;
 const CAT_ATTACHED = 0x0001;
 const CAT_DETACHED = 0x0002;
 const CAT_BOUNDARY = 0x0004;
+const CAT_BEAN = 0x0008;
 const WORLD_RADIUS = 5;
 
 export class Hand {
@@ -178,11 +179,16 @@ export class Hand {
 
         if (mode === 'gravity') {
             this._createPivotJoint();
+            this.fixture.setFilterData({
+                categoryBits: CAT_DETACHED,
+                maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
+                groupIndex: 0,
+            });
         } else {
             // detached — set collision filter for bouncing
             this.fixture.setFilterData({
                 categoryBits: CAT_DETACHED,
-                maskBits: CAT_BOUNDARY | CAT_DETACHED,
+                maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
                 groupIndex: 0,
             });
         }
@@ -333,7 +339,7 @@ export class Hand {
             this._mode = 'detached';
             this.fixture.setFilterData({
                 categoryBits: CAT_DETACHED,
-                maskBits: CAT_BOUNDARY | CAT_DETACHED,
+                maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
                 groupIndex: 0,
             });
         }
@@ -520,7 +526,7 @@ export class Hand {
                 wasModeBeforeDrag = 'detached';
                 this.fixture.setFilterData({
                     categoryBits: CAT_DETACHED,
-                    maskBits: CAT_BOUNDARY | CAT_DETACHED,
+                    maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
                     groupIndex: 0,
                 });
                 if (this.onDetachDuringDrag) this.onDetachDuringDrag();
@@ -632,7 +638,7 @@ export class Hand {
                 this._mode = 'detached';
                 this.fixture.setFilterData({
                     categoryBits: CAT_DETACHED,
-                    maskBits: CAT_BOUNDARY | CAT_DETACHED,
+                    maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
                     groupIndex: 0,
                 });
 
@@ -647,7 +653,7 @@ export class Hand {
                 this.body.setAwake(true);
                 this.fixture.setFilterData({
                     categoryBits: CAT_DETACHED,
-                    maskBits: CAT_BOUNDARY | CAT_DETACHED,
+                    maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
                     groupIndex: 0,
                 });
                 if (timeSinceMove < 150) {
@@ -702,4 +708,4 @@ export class Hand {
 
 Hand.forceDetachOnDrag = false;
 
-export { CAT_BOUNDARY };
+export { CAT_BOUNDARY, CAT_BEAN };

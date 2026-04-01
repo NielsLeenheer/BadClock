@@ -2,6 +2,7 @@ import './analog.css';
 import { World, Vec2, Chain } from 'planck';
 import { Hand, CAT_BOUNDARY } from './hand.js';
 import { Crown } from './crown.js';
+import { Beans } from './beans.js';
 
 const DEG = Math.PI / 180;
 const WORLD_RADIUS = 5;
@@ -256,6 +257,9 @@ export class AnalogClock {
             requestAnimationFrame(phase1Frame);
         };
 
+        // Beans (baked beans in tomato sauce)
+        this.beans = new Beans(face, this.gravityWorld, WORLD_RADIUS);
+
         // Hour tick marks
         for (let i = 0; i < 12; i++) {
             const tick = document.createElement('div');
@@ -349,6 +353,8 @@ export class AnalogClock {
                 hand.body.setAwake(true);
             }
         }
+
+        this.beans.setOrientation(degrees);
     }
 
     /* ---- Shake / gravity mode ---- */
@@ -403,6 +409,11 @@ export class AnalogClock {
     debugCrown(show = true) {
         if (show) this.crown.reveal();
         else this.crown.hide();
+    }
+
+    debugBeans() {
+        if (this.beans.active) this.beans.clear();
+        else this.beans.pour();
     }
 
     /* ---- Per-frame update ---- */
@@ -466,21 +477,23 @@ export class AnalogClock {
         // Coasting (time model)
         for (const hand of this.hands) hand.checkCoasting();
 
-        // Reattach detached hands near pivot
-        for (const hand of this.hands) {
-            if (hand.isDetached && !hand._isDragging) {
-                const basePos = hand.body.getWorldPoint(Vec2(0, 0));
-                const tipPos = hand.body.getWorldPoint(Vec2(0, hand.length));
-                const baseDist = basePos.length();
-                const tipDist = tipPos.length();
-                const speed = hand.body.getLinearVelocity().length();
-                const angSpeed = Math.abs(hand.body.getAngularVelocity());
-                const slow = speed < 0.5 && angSpeed < 0.5;
+        // Reattach detached hands near pivot (skip if beans active — hands stay detached in sauce)
+        if (!this.beans.active) {
+            for (const hand of this.hands) {
+                if (hand.isDetached && !hand._isDragging) {
+                    const basePos = hand.body.getWorldPoint(Vec2(0, 0));
+                    const tipPos = hand.body.getWorldPoint(Vec2(0, hand.length));
+                    const baseDist = basePos.length();
+                    const tipDist = tipPos.length();
+                    const speed = hand.body.getLinearVelocity().length();
+                    const angSpeed = Math.abs(hand.body.getAngularVelocity());
+                    const slow = speed < 0.5 && angSpeed < 0.5;
 
-                if (baseDist < 0.4 && baseDist < tipDist && slow) {
-                    hand.reattach();
-                    hand.onDragInGravityMode = null;
-                    this._updateShakeClass();
+                    if (baseDist < 0.4 && baseDist < tipDist && slow) {
+                        hand.reattach();
+                        hand.onDragInGravityMode = null;
+                        this._updateShakeClass();
+                    }
                 }
             }
         }
@@ -497,12 +510,25 @@ export class AnalogClock {
         this._physicsAccumulator += dt;
 
         const anyGravity = this.hands.some(h => h.isInGravityModel);
+        const needGravity = anyGravity || this.beans.active;
         while (this._physicsAccumulator >= TIME_STEP) {
             this.timeWorld.step(TIME_STEP);
-            if (anyGravity) {
+            if (needGravity) {
                 this.gravityWorld.step(TIME_STEP);
             }
             this._physicsAccumulator -= TIME_STEP;
+        }
+
+        // Check if any time-model hands dip into the sauce → detach them
+        if (this.beans.active) {
+            for (const hand of this.hands) {
+                if (!hand.isInTimeModel) continue;
+                const tip = hand.body.getWorldPoint(Vec2(0, hand.length));
+                if (this.beans.isSubmerged(tip.x, tip.y)) {
+                    hand.detach();
+                    this._updateShakeClass();
+                }
+            }
         }
 
         // Render all hands (skip when not visible)
@@ -513,6 +539,7 @@ export class AnalogClock {
             for (const hand of this.hands) {
                 hand.render(this._cachedClockRadius, WORLD_RADIUS);
             }
+            this.beans.render(this._cachedClockRadius, WORLD_RADIUS);
         }
     }
 }

@@ -56,8 +56,20 @@ export class DebugPanel {
             clock.simulateDST();
         });
 
+        document.querySelector('.beans-btn').addEventListener('click', () => {
+            clock.debug.beans();
+        });
+
         document.getElementById('detach-on-drag-checkbox').addEventListener('change', (e) => {
             clock.debug.setForceDetachOnDrag(e.target.checked);
+        });
+
+        const orientSlider = document.getElementById('orientation-slider');
+        const orientValue = document.getElementById('orientation-slider-value');
+        orientSlider.addEventListener('input', () => {
+            const deg = parseInt(orientSlider.value);
+            orientValue.textContent = `${deg}°`;
+            clock.setManualOrientation(deg);
         });
 
         // Clock events → debug UI

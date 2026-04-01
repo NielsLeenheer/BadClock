@@ -157,3 +157,20 @@ body.devmode #debug-toggle {
     margin-top: 2px;
     cursor: pointer;
 }
+
+.slider-row {
+    margin-top: 6px;
+}
+
+.slider-label {
+    color: #ecf0f1;
+    font-size: 12px;
+    font-family: monospace;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.debug-slider {
+    width: 100%;
+    cursor: pointer;
+}

@@ -77,8 +77,18 @@ export class Clock {
 
     /* ---- Mode switching ---- */
 
-    nextMode() { this.modes.next(); this._modeSwitchUntil = Date.now() + 400; this._updateVisibility(); }
-    prevMode() { this.modes.prev(); this._modeSwitchUntil = Date.now() + 400; this._updateVisibility(); }
+    nextMode() {
+        this.modes.next();
+        this._modeSwitchUntil = Date.now() + 400;
+        this._updateVisibility();
+        this._maybeSpillBeans();
+    }
+    prevMode() {
+        this.modes.prev();
+        this._modeSwitchUntil = Date.now() + 400;
+        this._updateVisibility();
+        this._maybeSpillBeans();
+    }
 
     /* ---- Crown ---- */
 
@@ -156,6 +166,7 @@ export class Clock {
         setForceDetachOnDrag: (on) => { Hand.forceDetachOnDrag = on; },
         energy: (e) => this.analogClock.debugSetEnergy(e),
         crown: (show = true) => this.analogClock.debugCrown(show),
+        beans: () => this.analogClock.debugBeans(),
         flicker: () => this.digitalClock.debugFlicker(),
         decay: (min = 5) => this.digitalClock.debugDecay(min),
         shake: () => this.enterShakeMode(),
@@ -168,6 +179,7 @@ export class Clock {
                 'overwind()':      'Over-wind → all hands fly off',
                 'energy(0..1)':    'Set crown winding energy',
                 'crown(bool)':     'Show/hide the crown',
+                'beans()':         'Pour baked beans onto the clock face',
                 'flicker()':       'Random digital segment flicker',
                 'decay(minutes)':  'Age digital segments',
                 'shake()':         'Enter gravity mode',
@@ -180,6 +192,13 @@ export class Clock {
         if (!this.analogClock.isShaking) {
             this.analogClock.enterShakeMode();
             this.onShakeModeChanged?.();
+        }
+    }
+
+    _maybeSpillBeans() {
+        // 1 in 30 chance of beans on face switch (only when switching TO analog)
+        if (this.currentMode === 'analog' && !this.analogClock.beans.active && Math.random() < 1 / 30) {
+            this.analogClock.beans.pour();
         }
     }
 

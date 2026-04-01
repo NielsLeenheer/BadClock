@@ -55,11 +55,16 @@
             <button class="control-btn control-btn--orange shake-btn">SHAKE</button>
             <button class="control-btn control-btn--red overwind-btn">OVERWIND</button>
             <button class="control-btn control-btn--purple dst-btn">DST</button>
+            <button class="control-btn control-btn--orange beans-btn">BEANS</button>
         </div>
         <label class="debug-checkbox-label">
             <input type="checkbox" id="detach-on-drag-checkbox">
             Detach hands on drag
         </label>
+        <div class="slider-row">
+            <label class="slider-label">Orientation <span id="orientation-slider-value">0°</span></label>
+            <input type="range" id="orientation-slider" min="-360" max="360" value="0" class="debug-slider">
+        </div>
     </div>
 
     <script type="module" src="/src/main.js"></script>
