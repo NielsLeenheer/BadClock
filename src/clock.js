@@ -5,6 +5,7 @@
 import { AnalogClock } from './clock/analog.js';
 import { DigitalClock } from './clock/digital.js';
 import { Hand } from './clock/hand.js';
+import { Menu } from './clock/menu.js';
 import { ModeSwitcher } from './clock/mode-switcher.js';
 import { RotationController } from './rotation-controller.js';
 import { ShakeDetector } from './shake-detector.js';
@@ -38,6 +39,10 @@ export class Clock {
                 this.onShakeModeChanged?.();
             }
         };
+
+        // Menu
+        this.menu = new Menu(el);
+        this.menu.onAction = (action) => this._handleMenuAction(action);
 
         // Manual mode state
         this.manualMode = false;
@@ -205,6 +210,66 @@ export class Clock {
         }
     }
 
+    /* ---- Menu ---- */
+
+    openMenu() { this.menu.open(this.currentMode); this.menu.setOrientation(this.rotation.rotation); }
+    closeMenu() { this.menu.close(); }
+    toggleMenu() { this.menu.toggle(this.currentMode); }
+
+    reset() {
+        // Reset time offset
+        this.time.value = 0;
+
+        // Reattach all hands
+        for (const hand of this.analogClock.hands) {
+            if (!hand.isInTimeModel) {
+                hand.reattach();
+            }
+        }
+        this.analogClock._updateShakeClass();
+
+        // Clear beans
+        if (this.analogClock.beans.active) {
+            this.analogClock.beans.clear();
+        }
+
+        // Stop grinding animation
+        this.analogClock._grinding = false;
+
+        // Reset crown energy
+        this.analogClock.crown.energy = 1.0;
+
+        // Reset digital segments
+        this.digitalClock.resetSegments();
+
+        // Snap time to correct positions
+        this.analogClock.setCurrentTime();
+    }
+
+    triggerRandomQuirk() {
+        const quirks = this.currentMode === 'digital'
+            ? ['flicker', 'decay']
+            : ['shake', 'beans', 'overwind'];
+        const pick = quirks[Math.floor(Math.random() * quirks.length)];
+        switch (pick) {
+            case 'shake':    this.enterShakeMode(); break;
+            case 'beans':    this.analogClock.debugBeans(); break;
+            case 'overwind': this.analogClock.debugOverwind(); break;
+            case 'dst':      this.simulateDST(); break;
+            case 'flicker':  this.digitalClock.debugFlicker(); break;
+            case 'decay':    this.digitalClock.debugDecay(Math.floor(Math.random() * 30) + 1); break;
+        }
+    }
+
+    _handleMenuAction(action) {
+        switch (action) {
+            case 'reset':  setTimeout(() => window.location.reload(), 2700); break;
+            case 'shake':  this.enterShakeMode(); break;
+            case 'beans':  this.analogClock.debugBeans(); break;
+            case 'random': this.triggerRandomQuirk(); break;
+        }
+    }
+
     _maybeSpillBeans() {
         // 1 in 30 chance of beans on face switch (only when switching TO analog)
         if (this.currentMode === 'analog' && !this.analogClock.beans.active && Math.random() < 1 / 30) {
@@ -238,6 +303,12 @@ export class Clock {
 
             // Tell analog clock the orientation (for gravity and rendering)
             this.analogClock.setOrientation(rot);
+        }
+
+        // Keep menu gravity in sync (needs continuous updates
+        // even when rotation hasn't changed, as sensor data refines it)
+        if (this.menu.active) {
+            this.menu.setOrientation(rot);
         }
 
         const switching = Date.now() < this._modeSwitchUntil;

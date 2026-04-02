@@ -34,6 +34,15 @@ window.addEventListener('load', () => {
 
     const gestures = new GestureDetector(() => clock.displayRotation);
     gestures.on('*', (zone, direction) => {
+        // Top-down swipe opens menu from any view
+        if (zone === 'top' && direction === 'down') {
+            clock.toggleMenu();
+            return;
+        }
+
+        // Don't process other gestures while menu is open
+        if (clock.menu.active) return;
+
         switch (view) {
             case 'digital':
                 if (zone === 'right' && direction === 'left') {
