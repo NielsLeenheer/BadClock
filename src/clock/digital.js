@@ -419,6 +419,19 @@ export class DigitalClock {
         return count;
     }
 
+    /** Reset all segments to pristine state (clear flicker, broken, decay). */
+    resetSegments() {
+        for (const d of this.digits) {
+            for (const s of 'abcdefg') {
+                const ss = d.segState[s];
+                ss.flickering = false;
+                ss.flickerSpeed = null;
+                ss.broken = false;
+                ss.litSince = Date.now();
+            }
+        }
+    }
+
     /* ---- Debug helpers ---- */
 
     /** Force a random lit segment into flicker mode (respects max cap). */
