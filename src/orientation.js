@@ -10,6 +10,8 @@ export class OrientationSource {
         this.onOrientation = null; // ({ x, y, z }) => void
         this.onRawAccel = null;    // ({ x, y, z }) => void — unfiltered, for shake detection
         this.onError = null;       // (message: string) => void
+        this.onConnected = null;   // () => void — called once when a source starts delivering data
+        this._connected = false;
     }
 
     start() {
@@ -22,6 +24,10 @@ export class OrientationSource {
         eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+                if (!this._connected) {
+                    this._connected = true;
+                    this.onConnected?.();
+                }
                 if (this.onOrientation) this.onOrientation(data);
             } catch (err) {
                 console.error('Error parsing orientation data:', err);
@@ -91,6 +97,10 @@ export class OrientationSource {
         const sensor = new RelativeOrientationSensor({ frequency: 10 });
 
         sensor.addEventListener('reading', () => {
+            if (!this._connected) {
+                this._connected = true;
+                this.onConnected?.();
+            }
             const [qx, qy, qz, qw] = sensor.quaternion;
 
             const sinr_cosp = 2 * (qw * qx + qy * qz);

@@ -43,6 +43,7 @@ export class Clock {
         this.manualMode = false;
         this.manualOrientation = 0;
         this.autoOrientation = 0;
+        this.orientationOffset = 0;  // temporary drag offset, committed on release
 
         // Callbacks for external UI (debug panel)
         this.onShakeModeChanged = null;
@@ -136,6 +137,11 @@ export class Clock {
         this.manualOrientation = angle;
     }
 
+    commitOrientationOffset() {
+        this.autoOrientation += this.orientationOffset;
+        this.orientationOffset = 0;
+    }
+
     /* ---- Orientation input ---- */
 
     handleOrientation(data) {
@@ -147,7 +153,11 @@ export class Clock {
 
         const angle = Math.atan2(-x, -y) * (180 / Math.PI);
         this.autoOrientation = angle;
-        this.rotation.update(angle);
+        if (this.orientationOffset !== 0) {
+            this.rotation.set(angle + this.orientationOffset);
+        } else {
+            this.rotation.update(angle);
+        }
     }
 
     handleRawAccel(data) {
@@ -206,7 +216,12 @@ export class Clock {
 
     animate() {
         if (!this.manualMode) {
-            this.rotation.snapCheck();
+            // Re-apply offset even without new sensor data
+            if (this.orientationOffset !== 0) {
+                this.rotation.set(this.autoOrientation + this.orientationOffset);
+            } else {
+                this.rotation.snapCheck();
+            }
         } else {
             const target = -this.manualOrientation;
             if (target !== this.rotation.rotation) {

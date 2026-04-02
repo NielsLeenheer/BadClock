@@ -32,7 +32,7 @@ window.addEventListener('load', () => {
     //
     let view = 'digital';
 
-    const gestures = new GestureDetector(clockEl, () => clock.displayRotation);
+    const gestures = new GestureDetector(() => clock.displayRotation);
     gestures.on('*', (zone, direction) => {
         switch (view) {
             case 'digital':
@@ -77,6 +77,49 @@ window.addEventListener('load', () => {
         if (!clock.manualMode) clock.handleRawAccel(data);
     };
     orientation.onError = (msg) => debug.showSensorError(msg);
+
+    // Viewport-based orientation drag (fallback when no hardware sensors)
+    // Touch X position maps across viewport width to -180..+180 offset.
+    // On release, commits offset into autoOrientation and resets to 0.
+    let orientationDragActive = false;
+    let orientationDragStartX = 0;
+    let hasHardwareOrientation = false;
+
+    orientation.onConnected = () => {
+        hasHardwareOrientation = true;
+    };
+
+    const onDragStart = (e) => {
+        if (hasHardwareOrientation) return;
+        const t = e.touches ? e.touches[0] : e;
+        if (t.clientY < window.innerHeight * 0.9) return;
+        orientationDragActive = true;
+        orientationDragStartX = t.clientX;
+        gestures.suppressed = true;
+        clock.orientationOffset = 0;
+    };
+
+    const onDragMove = (e) => {
+        if (!orientationDragActive) return;
+        const t = e.touches ? e.touches[0] : e;
+        const dx = orientationDragStartX - t.clientX;
+        clock.orientationOffset = (dx / window.innerWidth) * 360;
+    };
+
+    const onDragEnd = () => {
+        if (!orientationDragActive) return;
+        orientationDragActive = false;
+        gestures.suppressed = false;
+        clock.commitOrientationOffset();
+    };
+
+    document.addEventListener('touchstart', onDragStart, { passive: true, capture: true });
+    document.addEventListener('touchmove', onDragMove, { passive: true });
+    document.addEventListener('touchend', onDragEnd);
+    document.addEventListener('mousedown', onDragStart, { capture: true });
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragEnd);
+
     orientation.start();
 
     // Lock screen orientation
