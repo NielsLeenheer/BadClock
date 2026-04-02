@@ -181,14 +181,14 @@ export class Hand {
             this._createPivotJoint();
             this.fixture.setFilterData({
                 categoryBits: CAT_DETACHED,
-                maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
+                maskBits: CAT_BOUNDARY | CAT_BEAN,
                 groupIndex: 0,
             });
         } else {
             // detached — set collision filter for bouncing
             this.fixture.setFilterData({
                 categoryBits: CAT_DETACHED,
-                maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
+                maskBits: CAT_BOUNDARY | CAT_BEAN,
                 groupIndex: 0,
             });
         }
@@ -339,7 +339,7 @@ export class Hand {
             this._mode = 'detached';
             this.fixture.setFilterData({
                 categoryBits: CAT_DETACHED,
-                maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
+                maskBits: CAT_BOUNDARY | CAT_BEAN,
                 groupIndex: 0,
             });
         }
@@ -526,7 +526,7 @@ export class Hand {
                 wasModeBeforeDrag = 'detached';
                 this.fixture.setFilterData({
                     categoryBits: CAT_DETACHED,
-                    maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
+                    maskBits: CAT_BOUNDARY | CAT_BEAN,
                     groupIndex: 0,
                 });
                 if (this.onDetachDuringDrag) this.onDetachDuringDrag();
@@ -638,7 +638,7 @@ export class Hand {
                 this._mode = 'detached';
                 this.fixture.setFilterData({
                     categoryBits: CAT_DETACHED,
-                    maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
+                    maskBits: CAT_BOUNDARY | CAT_BEAN,
                     groupIndex: 0,
                 });
 
@@ -653,7 +653,7 @@ export class Hand {
                 this.body.setAwake(true);
                 this.fixture.setFilterData({
                     categoryBits: CAT_DETACHED,
-                    maskBits: CAT_BOUNDARY | CAT_DETACHED | CAT_BEAN,
+                    maskBits: CAT_BOUNDARY | CAT_BEAN,
                     groupIndex: 0,
                 });
                 if (timeSinceMove < 150) {
