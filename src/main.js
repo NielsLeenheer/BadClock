@@ -138,4 +138,11 @@ window.addEventListener('load', () => {
 
     // Expose for debug console
     window.clock = clock;
+
+    // Dev-only recorder (dynamic import — excluded from production build)
+    if (import.meta.env.DEV) {
+        import('./recorder.js').then(({ initRecorder }) => {
+            initRecorder(clockEl, clock);
+        });
+    }
 });
