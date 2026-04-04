@@ -19,6 +19,13 @@ except ImportError:
     HAS_SMBUS = False
     print("⚠ smbus not available - shake detection may not work optimally")
 
+try:
+    from evdev import InputDevice, ecodes
+    HAS_EVDEV = True
+except ImportError:
+    HAS_EVDEV = False
+    print("⚠ evdev not available - rotary encoder will not work")
+
 app = Flask(__name__)
 CORS(app)
 
@@ -31,12 +38,14 @@ UPDATE_RATE = 0.033       # Sensor update rate in seconds (~30Hz)
 
 class SensorReader:
     """
-    Read orientation data from Raspberry Pi Sense HAT
-    Uses built-in sensor fusion for stable readings
+    Read orientation data from accelerometer.
+    Auto-detects: LSM303DLHC (Adafruit) or Sense HAT.
     """
-    
+
     def __init__(self):
         self.sense = None
+        self.i2c_bus = None
+        self.sensor_type = None  # 'lsm303dlhc' | 'sense_hat' | None
         self.orientation_data = {
             'display_angle': 0,
             'accel_x_raw': 0,
@@ -45,112 +54,200 @@ class SensorReader:
             'accel_y': 1,
             'accel_z': 0
         }
-        self.shake_data = {'x': 0, 'y': -1, 'z': 0}  # Separate for shake detection
         self.running = False
-        self.smoothed_angle = 0  # Smoothed display angle
-        
+        self.smoothed_angle = 0
+        self.shaking = False
+
+        # Shake detection state
+        self._shake_history = []  # list of { time, z }
+        self._shake_window = 0.6  # seconds to look back
+        self._shake_threshold = 0.15  # minimum z-change to count as reversal
+        self._shake_reversals_needed = 2
+        self._shake_cooldown = 0  # timestamp when shake was last triggered
+
         self.initialize()
-    
+
     def initialize(self):
-        """Initialize Sense HAT"""
+        """Auto-detect and initialize accelerometer"""
+        # Try LSM303DLHC first (Adafruit breakout at 0x19)
+        if self._init_lsm303dlhc():
+            return True
+        # Fall back to Sense HAT
+        if self._init_sense_hat():
+            return True
+
+        print("⚠ No accelerometer found — running in simulation mode")
+        return False
+
+    def _init_lsm303dlhc(self):
+        """Try to initialize LSM303DLHC on I2C"""
+        if not HAS_SMBUS:
+            return False
+
+        try:
+            bus = smbus.SMBus(1)
+            # Probe accelerometer at 0x19
+            bus.read_byte_data(0x19, 0x20)
+
+            # CTRL_REG1_A: 50Hz, all axes enabled
+            bus.write_byte_data(0x19, 0x20, 0x47)
+            # CTRL_REG4_A: ±2g, high resolution
+            bus.write_byte_data(0x19, 0x23, 0x08)
+
+            self.i2c_bus = bus
+            self.sensor_type = 'lsm303dlhc'
+
+            print("✓ LSM303DLHC accelerometer initialized (0x19)")
+            print("  Using: Direct I2C reads")
+            print("  Calculating: Display rotation from gravity projection")
+            print()
+            return True
+        except:
+            return False
+
+    def _init_sense_hat(self):
+        """Try to initialize Sense HAT"""
         try:
             from sense_hat import SenseHat
-            import smbus
-            
+
             self.sense = SenseHat()
-            self.i2c_bus = smbus.SMBus(1)  # For direct sensor access
-            
-            # Configure IMU (enable all sensors for fusion)
-            self.sense.set_imu_config(True, True, True)  # Compass, Gyro, Accel
-            
+            self.i2c_bus = smbus.SMBus(1) if HAS_SMBUS else None
+            self.sensor_type = 'sense_hat'
+
+            self.sense.set_imu_config(True, True, True)
+
             print("✓ Sense HAT initialized")
             print("  Using: Accelerometer (smoothed with gyro/compass)")
             print("  Calculating: Display rotation from gravity projection")
-            print("  Shake detection: Direct I2C reads for unfiltered data")
-            print()
-            print("  Coordinate system (corrected):")
-            print("    - Device upright (12 at top) → 0°")
-            print("    - Rotated 90° clockwise → 90°")
-            print("    - Upside down (12 at bottom) → 180°")
-            print("    - Rotated 90° counter-clockwise → 270°")
             print()
             return True
-            
         except ImportError:
-            print("⚠ Sense HAT library not installed")
-            print("  Install with: sudo apt-get install sense-hat")
-            print("  Running in simulation mode")
-            self.sense = None
             return False
-        except Exception as e:
-            print(f"⚠ Sense HAT initialization failed: {e}")
-            print("  Running in simulation mode")
-            self.sense = None
+        except Exception:
             return False
-    
+
     def read_raw_accel_for_shake(self):
-        """Read raw accelerometer without fusion - for shake detection"""
-        if self.sense is None:
-            return {'x': 0, 'y': -1, 'z': 0}
-        
+        """Read raw accelerometer — for shake detection"""
+        if self.sensor_type == 'lsm303dlhc':
+            return self._read_lsm303dlhc_accel()
+
+        if self.sensor_type == 'sense_hat':
+            try:
+                self.sense.set_imu_config(False, False, True)
+                accel = self.sense.get_accelerometer_raw()
+                self.sense.set_imu_config(True, True, True)
+                return {'x': accel['x'], 'y': accel['y'], 'z': accel['z']}
+            except:
+                pass
+
+        return {'x': 0, 'y': -1, 'z': 0}
+
+    def _read_lsm303dlhc_accel(self):
+        """Read LSM303DLHC accelerometer via I2C"""
         try:
-            # Temporarily use only accelerometer (disable fusion) for true raw readings
-            # This gives us the motion spikes needed for shake detection
-            self.sense.set_imu_config(False, False, True)  # Compass, Gyro, Accel
-            accel = self.sense.get_accelerometer_raw()
-            
-            # Re-enable full fusion for next orientation read
-            self.sense.set_imu_config(True, True, True)
-            
-            return {
-                'x': accel['x'],
-                'y': accel['y'],
-                'z': accel['z']
-            }
+            bus = self.i2c_bus
+            # Read 6 bytes starting at 0x28 (with auto-increment bit 0x80)
+            data = bus.read_i2c_block_data(0x19, 0x28 | 0x80, 6)
+            # 12-bit left-justified, ±2g scale
+            raw_x = (data[1] << 8 | data[0])
+            raw_y = (data[3] << 8 | data[2])
+            raw_z = (data[5] << 8 | data[4])
+
+            # Convert to signed
+            if raw_x > 32767: raw_x -= 65536
+            if raw_y > 32767: raw_y -= 65536
+            if raw_z > 32767: raw_z -= 65536
+
+            # Convert to g (12-bit left-justified in 16-bit, ±2g)
+            x = raw_x / 16384.0
+            y = raw_y / 16384.0
+            z = raw_z / 16384.0
+
+            return {'x': x, 'y': y, 'z': z}
         except:
             return {'x': 0, 'y': -1, 'z': 0}
-    
+
     def read_orientation(self):
         """Read orientation and calculate display rotation from gravity"""
-        if self.sense is None:
-            # Simulation mode - return rotating values for testing
-            t = time.time()
-            angle = (t * 30) % 360  # Rotate 30°/second
-            return {'display_angle': angle}
-        
-        try:
-            # Get raw accelerometer data - tells us which way gravity points
-            accel = self.sense.get_accelerometer_raw()
-            
-            # accel gives us gravity vector in device coordinates
-            # We want to know: on the screen surface, which way is down?
-            
-            # Assuming screen is in XY plane (Z is perpendicular to screen)
-            # We want the angle of gravity's projection onto the screen
+        if self.sensor_type == 'lsm303dlhc':
+            accel = self._read_lsm303dlhc_accel()
             x = accel['x']
-            y = -accel['y']  # Negate Y to match display coordinate system
-            # z = accel['z']  # We don't need this for screen rotation
-            
-            # Calculate angle: which way does gravity point on the screen?
-            # atan2 gives us the angle in radians
-            angle_rad = math.atan2(x, y)  # Note: x, y order matters!
+            y = accel['y']
+
+            # LSM303DLHC axes are rotated 90° vs Sense HAT
+            angle_rad = math.atan2(-y, x)
             angle_deg = math.degrees(angle_rad)
-            
-            # Normalize to 0-360
             if angle_deg < 0:
                 angle_deg += 360
-            
+
             return {
                 'display_angle': angle_deg,
                 'accel_x': x,
                 'accel_y': y,
                 'accel_z': accel['z']
             }
-            
-        except Exception as e:
-            print(f"Error reading sensor: {e}")
-            return {'display_angle': 0, 'accel_x': 0, 'accel_y': -1, 'accel_z': 0}
+
+        if self.sensor_type == 'sense_hat':
+            try:
+                accel = self.sense.get_accelerometer_raw()
+                x = accel['x']
+                y = -accel['y']
+
+                angle_rad = math.atan2(x, y)
+                angle_deg = math.degrees(angle_rad)
+                if angle_deg < 0:
+                    angle_deg += 360
+
+                return {
+                    'display_angle': angle_deg,
+                    'accel_x': x,
+                    'accel_y': y,
+                    'accel_z': accel['z']
+                }
+            except Exception as e:
+                print(f"Error reading sensor: {e}")
+                return {'display_angle': 0, 'accel_x': 0, 'accel_y': -1, 'accel_z': 0}
+
+        # Simulation mode
+        t = time.time()
+        angle = (t * 30) % 360
+        return {'display_angle': angle}
     
+    def detect_shake(self, z):
+        """Detect shake from Z-axis reversals"""
+        now = time.time()
+
+        # Add sample and trim old entries
+        self._shake_history.append({'time': now, 'z': z})
+        self._shake_history = [
+            s for s in self._shake_history
+            if now - s['time'] < self._shake_window
+        ]
+
+        if len(self._shake_history) <= 6:
+            return False
+
+        # Count direction reversals in Z
+        reversals = 0
+        prev_diff = 0
+
+        for i in range(1, len(self._shake_history)):
+            z_diff = self._shake_history[i]['z'] - self._shake_history[i - 1]['z']
+
+            if i > 1 and prev_diff != 0 and z_diff != 0:
+                if (abs(prev_diff) > self._shake_threshold and
+                    abs(z_diff) > self._shake_threshold):
+                    if (prev_diff > 0) != (z_diff > 0):
+                        reversals += 1
+
+            prev_diff = z_diff
+
+        if reversals >= self._shake_reversals_needed and now - self._shake_cooldown > 1.0:
+            self._shake_cooldown = now
+            return True
+
+        return False
+
     def apply_smoothing(self, new_angle):
         """Apply exponential smoothing with angle wraparound handling"""
         # Handle angle wraparound (359° → 1° is a small change, not 358°)
@@ -181,25 +278,24 @@ class SensorReader:
         def read_loop():
             while self.running:
                 raw_data = self.read_orientation()
-                
+
                 # Apply smoothing to display angle only
                 raw_angle = raw_data['display_angle']
                 smoothed = self.apply_smoothing(raw_angle)
-                
+
                 # Get UNSMOOTHED accelerometer for shake detection
                 shake_accel = self.read_raw_accel_for_shake()
-                
-                # Update stored data with both smoothed angle and raw shake data
+
+                # Run shake detection on raw Z
+                if self.detect_shake(shake_accel['z']):
+                    self.shaking = True
+
+                # Update stored data
                 self.orientation_data = {
                     'display_angle': smoothed,
                     'raw_angle': raw_angle,
-                    'accel_x_raw': shake_accel['x'],  # Unsmoothed for shake detection
-                    'accel_y_raw': shake_accel['y'],  # Unsmoothed for shake detection
-                    'accel_x': raw_data.get('accel_x', 0),
-                    'accel_y': raw_data.get('accel_y', 1),
-                    'accel_z': shake_accel['z']  # Unsmoothed for shake detection
                 }
-                
+
                 time.sleep(UPDATE_RATE)
         
         thread = threading.Thread(target=read_loop, daemon=True)
@@ -233,25 +329,122 @@ sensor = SensorReader()
 sensor.start_reading()
 
 
+# ============================================================
+# ROTARY ENCODER READER
+# ============================================================
+
+class EncoderReader:
+    """
+    Read rotary encoder events from HW-040 via device tree overlay.
+    Uses evdev to read relative axis events from /dev/input/eventX
+    """
+
+    def __init__(self):
+        self.device = None
+        self.event_device = None
+        self.running = False
+        self.last_delta = 0
+
+        self.initialize()
+
+    def find_encoder_device(self):
+        """Scan /dev/input/event* for rotary encoder"""
+        if not HAS_EVDEV:
+            return None
+
+        import os
+        for i in range(20):
+            event_path = f'/dev/input/event{i}'
+            if not os.path.exists(event_path):
+                continue
+
+            try:
+                dev = InputDevice(event_path)
+                if 'rotary' in dev.name.lower() or 'encoder' in dev.name.lower():
+                    return event_path
+            except:
+                pass
+
+        return None
+
+    def initialize(self):
+        """Initialize encoder device"""
+        if not HAS_EVDEV:
+            print("⚠ evdev library not available - encoder will not work")
+            return False
+
+        self.event_device = self.find_encoder_device()
+        if not self.event_device:
+            print("⚠ No rotary encoder device found")
+            print("  Check device tree overlay in /boot/firmware/config.txt:")
+            print("  dtoverlay=rotary-encoder,pin_a=13,pin_b=12,relative_axis=1")
+            return False
+
+        try:
+            self.device = InputDevice(self.event_device)
+            print(f"✓ Rotary encoder initialized on {self.event_device}")
+            print(f"  Device: {self.device.name}")
+            return True
+        except Exception as e:
+            print(f"⚠ Encoder initialization failed: {e}")
+            return False
+
+    def start_reading(self):
+        """Start continuous encoder reading in background thread"""
+        if self.device is None:
+            return
+
+        self.running = True
+
+        def read_loop():
+            try:
+                for event in self.device.read_loop():
+                    if event.type == ecodes.EV_REL:  # Relative axis event
+                        # event.value is +1 (clockwise) or -1 (counter-clockwise)
+                        self.last_delta = event.value
+            except Exception as e:
+                print(f"Encoder read error: {e}")
+                self.running = False
+
+        thread = threading.Thread(target=read_loop, daemon=True)
+        thread.start()
+        print("✓ Encoder reading thread started")
+
+    def get_delta(self):
+        """Get latest encoder delta and reset"""
+        delta = self.last_delta
+        self.last_delta = 0
+        return delta
+
+
+# Global encoder reader instance
+encoder = EncoderReader()
+encoder.start_reading()
+
+
 @app.route('/')
 def index():
     """Serve the clock HTML page"""
     return send_file('/home/admin/clock/index.html')
 
 
+@app.route('/font/<path:filename>')
+def serve_font(filename):
+    """Serve font files"""
+    return send_file(f'/home/admin/clock/font/{filename}')
+
+
 @app.route('/orientation')
 def orientation():
     """Return current orientation data as JSON"""
-    data = sensor.get_data()
     display_angle = sensor.get_display_angle()
-    
-    # Return raw accelerometer data for clock's shake detection
-    # Plus pre-calculated display_angle to avoid double transformation
+    shake = sensor.shaking
+    if shake:
+        sensor.shaking = False
+
     return jsonify({
-        'x': data.get('accel_x_raw', 0),
-        'y': data.get('accel_y_raw', -1),
-        'z': data.get('accel_z', 0),
-        'display_angle': display_angle
+        'display_angle': display_angle,
+        'shake': shake,
     })
 
 
@@ -260,28 +453,57 @@ def orientation_stream():
     """Server-Sent Events stream for real-time orientation updates"""
     def generate():
         last_angle = None
-        
+
         while True:
-            current_data = sensor.get_data()
             display_angle = sensor.get_display_angle()
-            
-            # Send raw accelerometer data for shake detection
-            # Plus pre-calculated display_angle
-            output_data = {
-                'x': current_data.get('accel_x_raw', 0),
-                'y': current_data.get('accel_y_raw', -1),
-                'z': current_data.get('accel_z', 0),
-                'display_angle': display_angle
-            }
-            
-            # Only send if angle has changed significantly
-            if last_angle is None or abs(display_angle - last_angle) > 0.5:
-                # Format as SSE
+
+            # Consume shake flag
+            shake = sensor.shaking
+            if shake:
+                sensor.shaking = False
+
+            # Send if angle changed or shake detected
+            if shake or last_angle is None or abs(display_angle - last_angle) > 0.5:
+                output_data = {
+                    'display_angle': display_angle,
+                }
+                if shake:
+                    output_data['shake'] = True
+
                 yield f"data: {json.dumps(output_data)}\n\n"
                 last_angle = display_angle
-            
+
             time.sleep(UPDATE_RATE)
-    
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive'
+        }
+    )
+
+
+@app.route('/winding/stream')
+def winding_stream():
+    """Server-Sent Events stream for rotary encoder winding events"""
+    def generate():
+        poll_interval = 0.05  # 50ms - check for new encoder events
+
+        while True:
+            delta = encoder.get_delta()
+
+            # Only send if there's a delta
+            if delta != 0:
+                output_data = {
+                    'delta': delta
+                }
+                yield f"data: {json.dumps(output_data)}\n\n"
+
+            time.sleep(poll_interval)
+
     return Response(
         stream_with_context(generate()),
         mimetype='text/event-stream',
@@ -299,22 +521,24 @@ def health():
     data = sensor.get_data()
     return jsonify({
         'status': 'ok',
-        'sensor_active': sensor.sense is not None,
-        'sensor_type': 'Sense HAT (Gravity Projection)',
+        'sensor': {
+            'active': sensor.sensor_type is not None,
+            'type': sensor.sensor_type or 'simulation'
+        },
+        'encoder': {
+            'active': encoder.device is not None,
+            'device': encoder.event_device if encoder.device else None
+        },
         'current_reading': {
             'display_angle': round(data['display_angle'], 1),
             'raw_angle': round(data.get('raw_angle', data['display_angle']), 1),
-            'accelerometer': {
-                'x': round(data.get('accel_x_raw', 0), 3),
-                'y': round(data.get('accel_y_raw', -1), 3),
-                'z': round(data.get('accel_z', 0), 3)
-            }
         },
         'config': {
             'smoothing': SMOOTHING_FACTOR,
-            'update_rate_hz': int(1 / UPDATE_RATE)
+            'update_rate_hz': int(1 / UPDATE_RATE),
+            'shake_threshold': sensor._shake_threshold,
+            'shake_reversals': sensor._shake_reversals_needed,
         },
-        'info': 'Display angle = atan2(accel_x, -accel_y) with exponential smoothing'
     })
 
 

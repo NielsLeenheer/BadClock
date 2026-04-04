@@ -150,13 +150,28 @@ export class Clock {
     /* ---- Orientation input ---- */
 
     handleOrientation(data) {
-        const { x, y, z } = data;
+        const { x, y, z, display_angle, shake } = data;
 
-        if (this.analogClock.hasShakeableHands && this.currentMode === 'analog') {
-            this.shakeDetector.feed(z, 0.3);
+        // Server-side shake detection
+        if (shake && this.analogClock.hasShakeableHands && this.currentMode === 'analog') {
+            this.shakeDetector.onShake?.();
         }
 
-        const angle = Math.atan2(-x, -y) * (180 / Math.PI);
+        // Client-side shake detection (browser sensors only)
+        if (display_angle == null && z != null) {
+            if (this.analogClock.hasShakeableHands && this.currentMode === 'analog') {
+                this.shakeDetector.feed(z, 0.3);
+            }
+        }
+
+        // Use server's pre-calculated display_angle when available,
+        // fall back to client-side calculation for browser sensors.
+        // Server sends 0°=upright, 90°=CW; client needs negated
+        // (CSS rotate positive = CW, but we counter-rotate to stay upright)
+        const angle = display_angle != null
+            ? -display_angle
+            : Math.atan2(-x, -y) * (180 / Math.PI);
+
         this.autoOrientation = angle;
         if (this.orientationOffset !== 0) {
             this.rotation.set(angle + this.orientationOffset);
@@ -166,6 +181,7 @@ export class Clock {
     }
 
     handleRawAccel(data) {
+        // Only used for browser sensor fallback
         if (this.analogClock.hasShakeableHands && this.currentMode === 'analog') {
             this.shakeDetector.feed(data.z, 2.0);
         }
