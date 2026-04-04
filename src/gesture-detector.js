@@ -22,6 +22,7 @@ export class GestureDetector {
         this.getRotation = getRotation;
         this._listeners = {};
         this.suppressed = false;
+        this._debugSvg = null;
 
         this._setup();
     }
@@ -138,5 +139,72 @@ export class GestureDetector {
         document.addEventListener('mousedown', onStart);
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onEnd);
+
+        // --- Debug zone overlay ---
+
+        const ZONE_COLORS = {
+            top:   'rgba(231, 76, 60, 0.3)',
+            left:  'rgba(46, 204, 113, 0.3)',
+            right: 'rgba(52, 152, 219, 0.3)',
+        };
+
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '-0.5 -0.5 1 1');
+        svg.style.cssText = `
+            position: fixed;
+            width: 100vh;
+            height: 100vh;
+            top: 50%;
+            left: 50%;
+            pointer-events: none;
+            z-index: 200;
+            display: none;
+        `;
+
+        for (const [name, z] of Object.entries(ZONES)) {
+            const rect = document.createElementNS(ns, 'rect');
+            rect.setAttribute('x', z.x1);
+            rect.setAttribute('y', z.y1);
+            rect.setAttribute('width', z.x2 - z.x1);
+            rect.setAttribute('height', z.y2 - z.y1);
+            rect.setAttribute('fill', ZONE_COLORS[name]);
+            svg.appendChild(rect);
+        }
+
+        document.body.appendChild(svg);
+        this._debugSvg = svg;
+
+        // Orientation drag zone — fixed screen-space bottom 10%
+        const orientStrip = document.createElement('div');
+        orientStrip.style.cssText = `
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            height: 4%;
+            background: rgba(241, 196, 15, 0.3);
+            pointer-events: none;
+            z-index: 200;
+            display: none;
+        `;
+        document.body.appendChild(orientStrip);
+        this._debugOrientStrip = orientStrip;
+
+        // Update rotation each frame
+        const updateDebug = () => {
+            if (this._debugSvg.style.display !== 'none') {
+                const rot = this.getRotation();
+                this._debugSvg.style.transform =
+                    `translate(-50%, -50%) rotate(${rot}deg)`;
+            }
+            requestAnimationFrame(updateDebug);
+        };
+        requestAnimationFrame(updateDebug);
+    }
+
+    showDebugZones(visible) {
+        this._debugSvg.style.display = visible ? 'block' : 'none';
+        this._debugOrientStrip.style.display = visible ? 'block' : 'none';
     }
 }

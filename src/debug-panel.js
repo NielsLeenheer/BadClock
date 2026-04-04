@@ -18,7 +18,10 @@ export class DebugPanel {
 
         this.enabled = false;
         this.clock = null;
+        this.gestures = null;
         this.lastAccelData = null;
+        this.lastWindEvent = null;      // { delta, timestamp }
+        this.windEventTimeout = null;
 
         this.setupDebugToggle();
         this.setupFullscreenToggle();
@@ -160,6 +163,7 @@ export class DebugPanel {
             this.debugElement.classList.toggle('visible', this.enabled);
             this.manualControls.classList.toggle('visible', this.enabled);
             this.updateHorizonLine();
+            if (this.gestures) this.gestures.showDebugZones(this.enabled);
         });
     }
 
