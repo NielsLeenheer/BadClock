@@ -87,13 +87,11 @@ export class Clock {
         this.modes.next();
         this._modeSwitchUntil = Date.now() + 400;
         this._updateVisibility();
-        this._maybeSpillBeans();
     }
     prevMode() {
         this.modes.prev();
         this._modeSwitchUntil = Date.now() + 400;
         this._updateVisibility();
-        this._maybeSpillBeans();
     }
 
     /* ---- Crown ---- */
@@ -283,13 +281,6 @@ export class Clock {
             case 'shake':  this.enterShakeMode(); break;
             case 'beans':  this.analogClock.debugBeans(); break;
             case 'random': this.triggerRandomQuirk(); break;
-        }
-    }
-
-    _maybeSpillBeans() {
-        // 1 in 30 chance of beans on face switch (only when switching TO analog)
-        if (this.currentMode === 'analog' && !this.analogClock.beans.active && Math.random() < 1 / 30) {
-            this.analogClock.beans.pour();
         }
     }
 
