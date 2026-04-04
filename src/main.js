@@ -115,7 +115,7 @@ window.addEventListener('load', () => {
     const onDragStart = (e) => {
         if (hasHardwareOrientation) return;
         const t = e.touches ? e.touches[0] : e;
-        if (t.clientY < window.innerHeight * 0.9) return;
+        if (t.clientY < window.innerHeight * 0.96) return;
         orientationDragActive = true;
         orientationDragStartX = t.clientX;
         gestures.suppressed = true;
