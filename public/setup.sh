@@ -29,10 +29,18 @@ if ! grep -q "Raspberry Pi" /proc/cpuinfo; then
     fi
 fi
 
+# Detect boot config path (Bookworm/Trixie vs older)
+if [ -f /boot/firmware/config.txt ]; then
+    BOOT_CONFIG="/boot/firmware/config.txt"
+else
+    BOOT_CONFIG="/boot/config.txt"
+fi
+echo "Using boot config: $BOOT_CONFIG"
+
 # Step 1: Enable I2C
 echo -e "${GREEN}Step 1: Enabling I2C interface...${NC}"
-if ! grep -q "^dtparam=i2c_arm=on" /boot/config.txt; then
-    echo "dtparam=i2c_arm=on" | sudo tee -a /boot/config.txt
+if ! grep -q "^dtparam=i2c_arm=on" "$BOOT_CONFIG"; then
+    echo "dtparam=i2c_arm=on" | sudo tee -a "$BOOT_CONFIG"
     echo "i2c-dev" | sudo tee -a /etc/modules
     echo -e "${YELLOW}I2C enabled. A reboot will be required.${NC}"
 else
@@ -43,7 +51,7 @@ fi
 echo
 echo -e "${GREEN}Step 2: Installing system dependencies...${NC}"
 sudo apt-get update
-sudo apt-get install -y python3-pip i2c-tools python3-flask python3-flask-cors sense-hat
+sudo apt-get install -y python3-pip i2c-tools python3-flask python3-flask-cors python3-smbus python3-evdev sense-hat
 
 # Step 3: Install Python packages (if not available via apt)
 echo
@@ -57,12 +65,22 @@ if command -v i2cdetect &> /dev/null; then
     echo "Scanning I2C bus 1..."
     sudo i2cdetect -y 1
     echo
-    echo "Look for address 0x6a (LSM9DS1 - Sense HAT) or 0x68 (MPU sensor)."
+    echo "Look for address 0x19 (LSM303DLHC), 0x6a (Sense HAT), or 0x68 (MPU sensor)."
 else
     echo "i2cdetect not available, skipping test"
 fi
 
-# Step 5: Create systemd service
+# Step 5: Configure rotary encoder overlay
+echo
+echo -e "${GREEN}Step 5: Configuring rotary encoder overlay...${NC}"
+if ! grep -q "rotary-encoder" "$BOOT_CONFIG"; then
+    echo "dtoverlay=rotary-encoder,pin_a=13,pin_b=12,relative_axis=1" | sudo tee -a "$BOOT_CONFIG"
+    echo -e "${YELLOW}Rotary encoder overlay added. A reboot will be required.${NC}"
+else
+    echo "Rotary encoder overlay already configured"
+fi
+
+# Step 6: Create systemd service
 echo
 echo -e "${GREEN}Step 5: Creating systemd service...${NC}"
 
@@ -95,9 +113,9 @@ EOF
 
 echo "Systemd service created at $SERVICE_FILE"
 
-# Step 6: Enable and start service
+# Step 7: Enable and start service
 echo
-echo -e "${GREEN}Step 6: Enabling and starting service...${NC}"
+echo -e "${GREEN}Step 7: Enabling and starting service...${NC}"
 sudo systemctl daemon-reload
 sudo systemctl enable clock-server.service
 sudo systemctl start clock-server.service
@@ -112,9 +130,9 @@ else
     echo "Check logs with: sudo journalctl -u clock-server -f"
 fi
 
-# Step 7: Configure PiOSK
+# Step 8: Configure PiOSK
 echo
-echo -e "${GREEN}Step 7: PiOSK Configuration${NC}"
+echo -e "${GREEN}Step 8: PiOSK Configuration${NC}"
 echo "To configure PiOSK to show your clock at boot:"
 echo
 echo "1. Edit your PiOSK configuration (usually in ~/.config/piosk/ or /boot/)"
