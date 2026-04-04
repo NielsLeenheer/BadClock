@@ -452,6 +452,9 @@ def orientation():
 def event_stream():
     """Server-Sent Events stream for orientation, shake, and winding events"""
     def generate():
+        # Send reload signal on first connect (client reloads if it was already running)
+        yield f"data: {json.dumps({'reload': True})}\n\n"
+
         last_angle = None
 
         while True:

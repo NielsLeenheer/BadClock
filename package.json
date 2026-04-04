@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "deploy": "vite build && scp -r dist/* admin@kiosk.local:~/clock/ && ssh admin@kiosk.local 'sudo systemctl restart clock-server'"
   },
   "devDependencies": {
     "mp4-muxer": "^5.2.2",

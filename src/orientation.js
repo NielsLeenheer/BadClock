@@ -24,6 +24,15 @@ export class OrientationSource {
         eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+
+                // Server sends reload on startup — reload if we were already connected
+                if (data.reload) {
+                    if (this._connected) window.location.reload();
+                    this._connected = true;
+                    this.onConnected?.();
+                    return;
+                }
+
                 if (!this._connected) {
                     this._connected = true;
                     this.onConnected?.();
