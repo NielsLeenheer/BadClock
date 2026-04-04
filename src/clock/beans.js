@@ -30,6 +30,8 @@ export class Beans {
         this._sauceAngle = 0;         // current rendered angle
         this._sauceVelocity = 0;      // angular velocity for spring-damper
         this._sauceTargetAngle = 0;
+        this._waveAmplitude = 0;      // current wave height (fraction of R)
+        this._wavePhase = 0;          // phase offset for animation
 
         // Canvas overlay
         this.canvas = document.createElement('canvas');
@@ -178,6 +180,12 @@ export class Beans {
         this._sauceVelocity += (wrapped * springK - this._sauceVelocity * damping) * dt;
         this._sauceAngle += this._sauceVelocity * dt;
         this.sauceBody.setTransform(Vec2(0, 0), this._sauceAngle);
+
+        // Wave amplitude tracks sauce velocity, settles to a gentle ripple at rest
+        const speed = Math.abs(this._sauceVelocity);
+        const targetAmp = Math.max(0.008, Math.min(speed * 0.06, 0.08));
+        this._waveAmplitude += (targetAmp - this._waveAmplitude) * 0.05;
+        this._wavePhase += speed * 0.3 + 0.02;
 
         const ctx = this.ctx;
         const dpr = this._dpr;
@@ -334,10 +342,20 @@ export class Beans {
 
         const halfChord = Math.sqrt(R * R - lineY * lineY);
 
-        // Build path: chord line + arc through the bottom
+        // Build path: wavy surface line + arc through the bottom
         ctx.beginPath();
         ctx.moveTo(-halfChord, lineY);
-        ctx.lineTo(halfChord, lineY);
+
+        // Wave surface — two superimposed sine waves for organic feel
+        const amp = this._waveAmplitude * R;
+        const segments = 48;
+        for (let i = 1; i <= segments; i++) {
+            const t = i / segments;
+            const wx = -halfChord + t * 2 * halfChord;
+            const wave = Math.sin(t * Math.PI * 3 + this._wavePhase) * amp
+                       + Math.sin(t * Math.PI * 5 - this._wavePhase * 1.3) * amp * 0.4;
+            ctx.lineTo(wx, lineY + wave);
+        }
 
         // Arc from right end of chord, through bottom, to left end of chord
         const arcStart = Math.atan2(lineY, halfChord);
