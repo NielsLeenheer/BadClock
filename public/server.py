@@ -448,9 +448,9 @@ def orientation():
     })
 
 
-@app.route('/orientation/stream')
-def orientation_stream():
-    """Server-Sent Events stream for real-time orientation updates"""
+@app.route('/stream')
+def event_stream():
+    """Server-Sent Events stream for orientation, shake, and winding events"""
     def generate():
         last_angle = None
 
@@ -462,47 +462,25 @@ def orientation_stream():
             if shake:
                 sensor.shaking = False
 
-            # Send if angle changed or shake detected
-            if shake or last_angle is None or abs(display_angle - last_angle) > 0.5:
+            # Consume encoder delta
+            delta = encoder.get_delta()
+
+            # Send if anything changed
+            changed = shake or delta != 0 or last_angle is None or abs(display_angle - last_angle) > 0.5
+
+            if changed:
                 output_data = {
                     'display_angle': display_angle,
                 }
                 if shake:
                     output_data['shake'] = True
+                if delta != 0:
+                    output_data['wind'] = delta
 
                 yield f"data: {json.dumps(output_data)}\n\n"
                 last_angle = display_angle
 
             time.sleep(UPDATE_RATE)
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',
-            'Connection': 'keep-alive'
-        }
-    )
-
-
-@app.route('/winding/stream')
-def winding_stream():
-    """Server-Sent Events stream for rotary encoder winding events"""
-    def generate():
-        poll_interval = 0.05  # 50ms - check for new encoder events
-
-        while True:
-            delta = encoder.get_delta()
-
-            # Only send if there's a delta
-            if delta != 0:
-                output_data = {
-                    'delta': delta
-                }
-                yield f"data: {json.dumps(output_data)}\n\n"
-
-            time.sleep(poll_interval)
 
     return Response(
         stream_with_context(generate()),

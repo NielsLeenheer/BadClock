@@ -19,7 +19,7 @@ export class OrientationSource {
     }
 
     startSSE() {
-        const eventSource = new EventSource('/orientation/stream');
+        const eventSource = new EventSource('/stream');
 
         eventSource.onmessage = (event) => {
             try {
