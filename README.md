@@ -1,6 +1,6 @@
 # BadClock
 
-An auto-rotating clock for Raspberry Pi with a circular display. The clock uses the Sense HAT's accelerometer to detect device orientation and rotates the clock face so it always reads correctly, no matter how the Pi is mounted or turned.
+An auto-rotating clock for Raspberry Pi with a circular display. The clock uses an accelerometer to detect device orientation and rotates the clock face so it always reads correctly, no matter how the Pi is mounted or turned.
 
 The clock has two display modes — digital (default) and analog — that you can swipe between. Both modes misbehave in their own ways.
 
@@ -8,7 +8,9 @@ The clock has two display modes — digital (default) and analog — that you ca
 
 - Raspberry Pi 4B
 - Waveshare circular display
-- Raspberry Pi Sense HAT (accelerometer + gyroscope + magnetometer)
+- Adafruit LSM303DLHC accelerometer (on Perma-Proto HAT) or Raspberry Pi Sense HAT
+- Rotary encoder (KY-040 or Grove) for winding — GPIO 13 (CLK), 12 (DT), 6 (SW)
+- Battery HAT (optional, for portable use)
 
 ## Clock modes
 
@@ -22,7 +24,7 @@ A traditional analog clock with hour, minute, and second hands driven by a planc
 
 Flick a hand hard enough and it detaches completely — bouncing around inside the clock face until it settles back at the pivot. There's also a 1-in-50 chance a hand detaches just from picking it up.
 
-A crown (revealed by swiping left from analog mode) lets you wind the clock. Swipe down to wind up, swipe up to unwind. Energy decays over 48 hours — when it runs low, the clock drifts backward. Overwind it and all the hands fly off.
+A crown (revealed by swiping left from analog mode) lets you wind the clock. Swipe down to wind up, swipe up to unwind. A physical rotary encoder (KY-040 or Grove) can also wind the clock — each detent adds 1% energy. Energy decays over 48 hours — when it runs low, the clock drifts backward. Overwind it and all the hands fly off.
 
 ### Switching modes
 
@@ -32,7 +34,7 @@ Swipe from the left or right edge of the screen to slide between digital (left),
 
 The clock UI is built as a modular JavaScript application, bundled with Vite into a single standalone HTML file. The analog clock uses [planck.js](https://piqnt.com/planck.js/) for physics — two separate worlds (one for normal timekeeping, one for gravity mode) with hands switching between them. See [physics-architecture.md](docs/physics-architecture.md) for the full design.
 
-**Server** ([public/server.py](public/server.py)) - A Flask server that reads orientation data from the Sense HAT at ~30Hz. It uses the IMU's sensor fusion (accelerometer + gyroscope + magnetometer) for stable readings, applies exponential smoothing to the display angle, and exposes the data via a REST endpoint (`/orientation`) and a Server-Sent Events stream (`/orientation/stream`). On machines without a Sense HAT, it runs in simulation mode.
+**Server** ([public/server.py](public/server.py)) - A Flask server that reads orientation data from the accelerometer at ~30Hz. It auto-detects the sensor (LSM303DLHC at 0x19 or Sense HAT), applies exponential smoothing to the display angle, detects shake gestures server-side, and exposes the data via a Server-Sent Events stream (`/orientation/stream`). The stream sends `{ display_angle }` with an optional `shake: true` flag — no raw accel data goes over the wire. It also reads rotary encoder events via `/winding/stream`. On machines without a sensor, it runs in simulation mode. When no SSE server is available, the client falls back to the browser's Generic Sensor API.
 
 **Diagnostics** ([public/diagnostics.py](public/diagnostics.py)) - A standalone I2C diagnostic tool that scans the bus for sensors and tests accelerometer readings.
 
@@ -45,7 +47,7 @@ npm install
 npm run build
 ```
 
-This outputs `dist/` containing the built `index.html` plus the server-side files (`server.py`, `setup.sh`, `requirements.txt`, `diagnostics.py`) copied from `public/`.
+This outputs `dist/` containing the built `index.html` plus the server-side files (`server.py`, `setup.sh`, `requirements.txt`, `diagnostics.py`, `encoder-test.py`) and font files copied from `public/`.
 
 For development with hot reload:
 
@@ -71,11 +73,12 @@ bash setup.sh
 
 The setup script will:
 1. Enable I2C on the Pi
-2. Install system dependencies (`python3-flask`, `python3-flask-cors`, `sense-hat`, `i2c-tools`)
+2. Install system dependencies (`python3-flask`, `python3-flask-cors`, `python3-smbus`, `python3-evdev`, `sense-hat`, `i2c-tools`)
 3. Install Python packages from `requirements.txt`
 4. Test the I2C connection
-5. Create and start a `clock-server` systemd service
-6. Print instructions for configuring PiOSK to show the clock at boot
+5. Configure rotary encoder device tree overlay
+6. Create and start a `clock-server` systemd service
+7. Print instructions for configuring PiOSK to show the clock at boot
 
 A reboot may be required if I2C wasn't previously enabled.
 
@@ -143,9 +146,11 @@ clock.debug.setForceDetachOnDrag(bool) — Force 100% detach on drag
 | Endpoint | Description |
 |---|---|
 | `GET /` | Serves the clock UI |
-| `GET /orientation` | Current orientation as JSON (`x`, `y`, `z`, `display_angle`) |
-| `GET /orientation/stream` | SSE stream of orientation updates |
-| `GET /health` | Health check with sensor status and config |
+| `GET /font/<file>` | Serves font files |
+| `GET /orientation` | Current orientation as JSON (`display_angle`, `shake`) |
+| `GET /orientation/stream` | SSE stream — `{ display_angle }` with optional `shake: true` |
+| `GET /winding/stream` | SSE stream — `{ delta: +1/-1 }` per encoder detent |
+| `GET /health` | Health check with sensor type, encoder status, and config |
 
 ## Diagnostics
 
@@ -155,4 +160,16 @@ To troubleshoot sensor issues on the Pi:
 python3 diagnostics.py
 ```
 
-This scans the I2C bus and tests each detected accelerometer.
+This scans the I2C bus and tests each detected accelerometer. For live axis calibration of the LSM303DLHC:
+
+```bash
+python3 diagnostics.py live
+```
+
+To test the rotary encoder independently:
+
+```bash
+python3 encoder-test.py
+```
+
+See [docs/rotary-encoder.md](docs/rotary-encoder.md) for wiring and setup details.
