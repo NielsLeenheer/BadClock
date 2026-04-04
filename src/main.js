@@ -1,6 +1,7 @@
 import './base.css';
 import { Clock } from './clock.js';
 import { OrientationSource } from './orientation.js';
+import { WindingSource } from './winding-source.js';
 import { GestureDetector } from './gesture-detector.js';
 import { DebugPanel } from './debug-panel.js';
 
@@ -88,6 +89,18 @@ window.addEventListener('load', () => {
     };
     orientation.onError = (msg) => debug.showSensorError(msg);
 
+    // Winding source (rotary encoder)
+    const winding = new WindingSource();
+    winding.onWind = (data) => {
+        // Each encoder detent delta maps to a wind amount
+        // +1 (clockwise) = positive wind, -1 (counter-clockwise) = negative wind
+        const windAmount = data.delta * 0.01;  // 0.01 per detent step (1%)
+        clock.windCrown(windAmount);
+    };
+    winding.onConnected = () => {
+        console.log('✓ Rotary encoder connected and ready');
+    };
+
     // Viewport-based orientation drag (fallback when no hardware sensors)
     // Touch X position maps across viewport width to -180..+180 offset.
     // On release, commits offset into autoOrientation and resets to 0.
@@ -131,6 +144,7 @@ window.addEventListener('load', () => {
     document.addEventListener('mouseup', onDragEnd);
 
     orientation.start();
+    winding.start();
 
     // Lock screen orientation
     if (screen.orientation && typeof screen.orientation.lock === 'function') {

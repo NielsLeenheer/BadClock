@@ -1,30 +1,27 @@
 # Rotary Encoder Setup
 
-How to connect a HW-040 rotary encoder to the Pi 4B with a Sense HAT already installed.
+How to connect a rotary encoder to the Pi 4B for the crown winding mechanism. Supports both the KY-040 (5-pin) and Grove rotary encoder (4-pin via JST connector).
 
 ## GPIO availability
 
-The Sense HAT uses very few GPIO pins directly:
-- **GPIO 2 & 3** — I2C bus (all sensors)
-- **GPIO 27 & 28** — HAT ID EEPROM (reserved)
+The Sense HAT / Perma-Proto HAT use:
+- **GPIO 2 & 3** — I2C bus (accelerometer + sensors)
 
-The joystick is read via an onboard Atmel microcontroller over I2C, so it does **not** occupy any GPIO pins. Everything else is free.
+Everything else is free.
 
 ## Physical wiring
 
-The HW-040 has built-in pull-up resistors, so no external components are needed.
+The KY-040 has built-in pull-up resistors, so no external components are needed.
 
-| HW-040 Pin | Pi Pin | GPIO |
-|------------|--------|------|
-| GND        | Any GND pin | — |
-| +  (VCC)   | 3.3V   | — |
-| CLK        | Pin 29 | GPIO 5 |
-| DT         | Pin 31 | GPIO 6 |
-| SW (button)| Pin 33 | GPIO 13 |
+| Signal     | Pi Pin | GPIO    | KY-040 Pin | Grove Wire |
+|------------|--------|---------|------------|------------|
+| CLK (A)    | Pin 33 | GPIO 13 | CLK        | SIG A (Yellow) |
+| DT (B)     | Pin 32 | GPIO 12 | DT         | SIG B (White) |
+| SW (button)| Pin 31 | GPIO 6  | SW         | — (not wired) |
+| VCC        | 3.3V   | —       | +          | Red |
+| GND        | Any GND| —       | GND        | Black |
 
-Any free GPIO works — 5, 6, 13 are just convenient choices that are physically adjacent.
-
-**Note:** If the Sense HAT is seated directly on the header, you'll need a stacking header (extended 40-pin) to access the GPIO pins underneath.
+The Grove encoder's push button is on the PCB but not routed through the JST connector — only CLK/DT/VCC/GND are wired.
 
 ## Reading the encoder
 
@@ -32,10 +29,12 @@ Any free GPIO works — 5, 6, 13 are just convenient choices that are physically
 
 The most reliable approach — the kernel handles the encoder at interrupt level.
 
-Add to `/boot/config.txt`:
+Add to boot config:
+- **Pi OS Bookworm/Trixie:** `/boot/firmware/config.txt`
+- **Older Pi OS:** `/boot/config.txt`
 
 ```
-dtoverlay=rotary-encoder,pin_a=5,pin_b=6,relative_axis=1
+dtoverlay=rotary-encoder,pin_a=13,pin_b=12,relative_axis=1
 ```
 
 Reboot. The encoder appears as an input device at `/dev/input/eventX`. Read it in Python with the `evdev` library:
@@ -50,10 +49,10 @@ for event in dev.read_loop():
         print(f'Turn: {event.value}')
 ```
 
-For the push button on GPIO 13, add a second overlay:
+For the push button on GPIO 6, add a second overlay:
 
 ```
-dtoverlay=gpio-key,gpio=13,keycode=28,label="encoder-button"
+dtoverlay=gpio-key,gpio=6,keycode=28,label="encoder-button"
 ```
 
 ### Option B: Python GPIO directly
@@ -63,8 +62,8 @@ Using `RPi.GPIO` with edge detection:
 ```python
 import RPi.GPIO as GPIO
 
-CLK = 5
-DT = 6
+CLK = 13
+DT = 12
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(CLK, GPIO.IN)
@@ -81,33 +80,20 @@ GPIO.add_event_detect(CLK, GPIO.FALLING, callback=on_rotate, bouncetime=2)
 
 The device tree approach is more reliable at high rotation speeds since it runs in kernel space.
 
-## Server changes
+## Server integration
 
-The encoder would need to be integrated into `server.py` as a new data source alongside the Sense HAT orientation data.
+The encoder is fully integrated into `server.py`:
 
-Add a new SSE stream or extend the existing `/orientation/stream` with encoder events:
+- **`EncoderReader`** class auto-detects the encoder by scanning `/dev/input/event*` for devices with "rotary" in the name
+- **`/winding/stream`** SSE endpoint sends `{ delta: +1 }` or `{ delta: -1 }` per detent
+- The client (`winding-source.js`) connects to this stream and calls `clock.windCrown()` with 0.01 energy per tick (1% — about 5 full rotations to fully wind)
 
-```python
-# New endpoint for winding data
-@app.route('/winding/stream')
-def winding_stream():
-    def generate():
-        dev = InputDevice('/dev/input/event0')
-        for event in dev.read_loop():
-            if event.type == ecodes.EV_REL:
-                yield f"data: {json.dumps({'delta': event.value})}\n\n"
+## Diagnostics
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',
-            'Connection': 'keep-alive'
-        }
-    )
+Test the encoder hardware independently:
+
+```bash
+python3 encoder-test.py
 ```
 
-The clock UI would connect to this stream and accumulate winding energy. The delta values (+1/-1 per detent) would map to winding amount.
-
-A push of the encoder button could also be exposed — useful as a mode switch or reset.
+This scans for the encoder device, then prints live events as you rotate.
