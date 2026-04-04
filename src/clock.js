@@ -214,7 +214,7 @@ export class Clock {
 
     openMenu() { this.menu.open(this.currentMode); this.menu.setOrientation(this.rotation.rotation); }
     closeMenu() { this.menu.close(); }
-    toggleMenu() { this.menu.toggle(this.currentMode); }
+    toggleMenu() { this.menu.setOrientation(this.rotation.rotation); this.menu.toggle(this.currentMode); }
 
     reset() {
         // Reset time offset

@@ -82,7 +82,7 @@ export class Menu {
 
             const body = this._world.createDynamicBody({
                 position: Vec2(x, y),
-                angle: 0,
+                angle: -rad,
                 linearDamping: 0.3,
                 angularDamping: 0.8,
             });
@@ -134,7 +134,7 @@ export class Menu {
 
             const body = this._world.createDynamicBody({
                 position: Vec2(x, y),
-                angle: (Math.random() - 0.5) * 0.6,
+                angle: -rad + (Math.random() - 0.5) * 0.6,
                 linearDamping: 0.3,
                 angularDamping: 0.8,
             });
