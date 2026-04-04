@@ -24,15 +24,11 @@
     background: rgba(0, 0, 0, 0.7);
     padding: 8px 12px;
     border-radius: 5px;
-    display: none;
+    display: flex;
     align-items: center;
     gap: 8px;
     cursor: pointer;
     user-select: none;
-}
-
-body.devmode #debug-toggle {
-    display: flex;
 }
 
 #debug-toggle input[type="checkbox"] {

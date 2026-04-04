@@ -131,20 +131,27 @@ export class DebugPanel {
 
         const dstLine = this._lastDstMsg ? `<br><span style="color: #f39c12;">${this._lastDstMsg}</span>` : '';
 
+        // Wind event display
+        let windLine = '';
+        if (this.lastWindEvent) {
+            const direction = this.lastWindEvent.delta > 0 ? '↻ CW' : '↺ CCW';
+            windLine = `<br><span style="color: #3498db;">${direction}</span>`;
+        }
+
         const accel = this.lastAccelData;
         if (accel) {
             this.orientationInfo.innerHTML = `
                 Orientation: ${clock.displayRotation}°${modeIndicator}<br>
                 Accel: x:${accel.x.toFixed(2)} y:${accel.y.toFixed(2)} z:${accel.z.toFixed(2)}<br>
                 Time offset: ${offsetSign}${offsetMinutes}m<br>
-                Energy: ${energyPct}%${dstLine}
+                Energy: ${energyPct}%${windLine}${dstLine}
             `;
         } else {
             this.orientationInfo.innerHTML = `
                 Orientation: ${Math.round(clock.displayRotation)}°${modeIndicator}<br>
                 Accel: –<br>
                 Time offset: ${offsetSign}${offsetMinutes}m<br>
-                Energy: ${energyPct}%${dstLine}
+                Energy: ${energyPct}%${windLine}${dstLine}
             `;
         }
     }
@@ -152,6 +159,20 @@ export class DebugPanel {
     /** Call when new accel data arrives (so the debug display can show x/y/z). */
     updateAccelData(data) {
         this.lastAccelData = data;
+    }
+
+    /** Call when winding event occurs (rotary encoder). */
+    updateWindEvent(data) {
+        this.lastWindEvent = {
+            delta: data.delta,
+            timestamp: Date.now()
+        };
+
+        // Clear event indicator after 500ms
+        if (this.windEventTimeout) clearTimeout(this.windEventTimeout);
+        this.windEventTimeout = setTimeout(() => {
+            this.lastWindEvent = null;
+        }, 500);
     }
 
     /* ---- Toggle & visibility ---- */
