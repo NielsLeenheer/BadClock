@@ -285,7 +285,7 @@ export class Clock {
             if (this.orientationOffset !== 0) {
                 this.rotation.set(this.autoOrientation + this.orientationOffset);
             } else {
-                this.rotation.snapCheck();
+                this.rotation.tick();
             }
         } else {
             const target = -this.manualOrientation;
